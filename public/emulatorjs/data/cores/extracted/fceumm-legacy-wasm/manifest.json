@@ -1,0 +1,15 @@
+{
+  "files": [
+    "build.json",
+    "core.json",
+    "fceumm_libretro.js",
+    "fceumm_libretro.wasm",
+    "license.txt"
+  ],
+  "js": "fceumm_libretro.js",
+  "wasm": "fceumm_libretro.wasm",
+  "worker": null,
+  "build": "build.json",
+  "core": "core.json",
+  "license": "license.txt"
+}

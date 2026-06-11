@@ -1,0 +1,15 @@
+{
+  "files": [
+    "build.json",
+    "core.json",
+    "gambatte_libretro.js",
+    "gambatte_libretro.wasm",
+    "license.txt"
+  ],
+  "js": "gambatte_libretro.js",
+  "wasm": "gambatte_libretro.wasm",
+  "worker": null,
+  "build": "build.json",
+  "core": "core.json",
+  "license": "license.txt"
+}

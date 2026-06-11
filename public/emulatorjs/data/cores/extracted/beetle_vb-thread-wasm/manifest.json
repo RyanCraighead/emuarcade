@@ -1,0 +1,15 @@
+{
+  "files": [
+    "build.json",
+    "core.json",
+    "license.txt",
+    "mednafen_vb_libretro.js",
+    "mednafen_vb_libretro.wasm"
+  ],
+  "js": "mednafen_vb_libretro.js",
+  "wasm": "mednafen_vb_libretro.wasm",
+  "worker": null,
+  "build": "build.json",
+  "core": "core.json",
+  "license": "license.txt"
+}

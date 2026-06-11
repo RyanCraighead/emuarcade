@@ -1,0 +1,14 @@
+{
+  "files": [
+    "build.json",
+    "core.json",
+    "stella2014_libretro.js",
+    "stella2014_libretro.wasm"
+  ],
+  "js": "stella2014_libretro.js",
+  "wasm": "stella2014_libretro.wasm",
+  "worker": null,
+  "build": "build.json",
+  "core": "core.json",
+  "license": null
+}

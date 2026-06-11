@@ -1,0 +1,15 @@
+{
+  "files": [
+    "build.json",
+    "core.json",
+    "license.txt",
+    "mgba_libretro.js",
+    "mgba_libretro.wasm"
+  ],
+  "js": "mgba_libretro.js",
+  "wasm": "mgba_libretro.wasm",
+  "worker": null,
+  "build": "build.json",
+  "core": "core.json",
+  "license": "license.txt"
+}

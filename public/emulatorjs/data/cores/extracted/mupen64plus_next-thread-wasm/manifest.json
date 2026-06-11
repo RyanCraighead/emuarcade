@@ -1,0 +1,15 @@
+{
+  "files": [
+    "build.json",
+    "core.json",
+    "license.txt",
+    "mupen64plus_next_libretro.js",
+    "mupen64plus_next_libretro.wasm"
+  ],
+  "js": "mupen64plus_next_libretro.js",
+  "wasm": "mupen64plus_next_libretro.wasm",
+  "worker": null,
+  "build": "build.json",
+  "core": "core.json",
+  "license": "license.txt"
+}

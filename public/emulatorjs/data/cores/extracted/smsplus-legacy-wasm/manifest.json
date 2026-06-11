@@ -1,0 +1,14 @@
+{
+  "files": [
+    "build.json",
+    "core.json",
+    "smsplus_libretro.js",
+    "smsplus_libretro.wasm"
+  ],
+  "js": "smsplus_libretro.js",
+  "wasm": "smsplus_libretro.wasm",
+  "worker": null,
+  "build": "build.json",
+  "core": "core.json",
+  "license": null
+}

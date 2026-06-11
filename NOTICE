@@ -1,0 +1,7 @@
+EmuArcade integrates with EmulatorJS.
+
+EmulatorJS is available at:
+https://github.com/EmulatorJS/EmulatorJS
+
+This repository is licensed under GPL-3.0-only to match EmulatorJS.
+EmuArcade does not include ROMs, BIOS files, or copyrighted game content.

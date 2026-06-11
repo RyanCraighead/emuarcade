@@ -1,0 +1,15 @@
+{
+  "files": [
+    "build.json",
+    "core.json",
+    "fbneo_libretro.js",
+    "fbneo_libretro.wasm",
+    "license.txt"
+  ],
+  "js": "fbneo_libretro.js",
+  "wasm": "fbneo_libretro.wasm",
+  "worker": null,
+  "build": "build.json",
+  "core": "core.json",
+  "license": "license.txt"
+}

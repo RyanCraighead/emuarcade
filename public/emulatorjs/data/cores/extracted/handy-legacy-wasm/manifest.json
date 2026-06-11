@@ -1,0 +1,14 @@
+{
+  "files": [
+    "build.json",
+    "core.json",
+    "handy_libretro.js",
+    "handy_libretro.wasm"
+  ],
+  "js": "handy_libretro.js",
+  "wasm": "handy_libretro.wasm",
+  "worker": null,
+  "build": "build.json",
+  "core": "core.json",
+  "license": null
+}

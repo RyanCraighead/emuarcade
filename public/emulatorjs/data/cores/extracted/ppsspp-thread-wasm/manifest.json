@@ -1,0 +1,15 @@
+{
+  "files": [
+    "build.json",
+    "core.json",
+    "license.txt",
+    "ppsspp_libretro.js",
+    "ppsspp_libretro.wasm"
+  ],
+  "js": "ppsspp_libretro.js",
+  "wasm": "ppsspp_libretro.wasm",
+  "worker": null,
+  "build": "build.json",
+  "core": "core.json",
+  "license": "license.txt"
+}

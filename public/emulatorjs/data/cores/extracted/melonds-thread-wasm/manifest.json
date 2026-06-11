@@ -1,0 +1,15 @@
+{
+  "files": [
+    "build.json",
+    "core.json",
+    "license.txt",
+    "melonds_libretro.js",
+    "melonds_libretro.wasm"
+  ],
+  "js": "melonds_libretro.js",
+  "wasm": "melonds_libretro.wasm",
+  "worker": null,
+  "build": "build.json",
+  "core": "core.json",
+  "license": "license.txt"
+}

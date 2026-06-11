@@ -1,0 +1,173 @@
+html,
+body,
+#game {
+  background: #000;
+  height: 100%;
+  min-height: 100dvh;
+  margin: 0;
+  overflow: hidden;
+  width: 100%;
+}
+
+#game {
+  inset: 0;
+  position: fixed;
+  touch-action: none;
+}
+
+body {
+  color: #d7e1ff;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+}
+
+.ejs_parent,
+.ejs_game {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+#runner-status {
+  align-items: center;
+  background: #05070d;
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  text-align: center;
+  transition: opacity 180ms ease;
+  z-index: 10;
+}
+
+#runner-status.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#runner-status.is-error {
+  color: #ffb5a4;
+}
+
+.emuarcade-touch-editor {
+  align-items: center;
+  background: rgba(14, 16, 18, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  bottom: 12px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  color: #f7f3ea;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  left: 50%;
+  max-width: calc(100vw - 24px);
+  padding: 10px;
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 100;
+}
+
+.emuarcade-touch-editor strong {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.emuarcade-touch-editor span {
+  color: #c9c1ad;
+  font-size: 11px;
+}
+
+.emuarcade-touch-editor button,
+.emuarcade-touch-setup button {
+  background: #1d201f;
+  border: 1px solid #3a3f3b;
+  border-radius: 8px;
+  color: #f7f3ea;
+  font: inherit;
+  font-size: 12px;
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.emuarcade-touch-editor button:hover,
+.emuarcade-touch-editor button.is-active,
+.emuarcade-touch-setup button:hover {
+  border-color: #34d399;
+}
+
+.emuarcade-touch-editor button:last-child,
+.emuarcade-touch-setup button:first-of-type {
+  background: #ff4500;
+  border-color: #ff4500;
+  color: #fff;
+  font-weight: 700;
+}
+
+.emuarcade-touch-editing .emuarcade-touch-control-target {
+  box-shadow:
+    0 0 0 2px rgba(52, 211, 153, 0.95),
+    0 0 0 8px rgba(52, 211, 153, 0.12) !important;
+  cursor: grab;
+  touch-action: none !important;
+}
+
+.emuarcade-touch-editing .emuarcade-touch-control-hidden {
+  display: block !important;
+  opacity: 0.28 !important;
+}
+
+.emuarcade-touch-setup {
+  align-items: center;
+  background: rgba(0, 0, 0, 0.42);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 18px;
+  position: fixed;
+  z-index: 90;
+}
+
+.emuarcade-touch-setup-panel {
+  background: rgba(17, 19, 21, 0.96);
+  border: 1px solid #3a3f3b;
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+  color: #f7f3ea;
+  display: grid;
+  gap: 10px;
+  max-width: 320px;
+  padding: 16px;
+  width: 100%;
+}
+
+.emuarcade-touch-setup-panel strong {
+  font-size: 18px;
+}
+
+.emuarcade-touch-setup-panel p {
+  color: #c9c1ad;
+  font-size: 13px;
+  margin: 0;
+}
+
+.emuarcade-clip-recording {
+  background: #ff4500 !important;
+  border-color: #ff8a5f !important;
+  color: #fff !important;
+}
+
+.emuarcade-clip-recording svg,
+.emuarcade-clip-rolling-ready svg,
+.emuarcade-clip-rolling-waiting svg {
+  fill: currentColor !important;
+}
+
+.emuarcade-clip-rolling-ready {
+  color: #34d399 !important;
+}
+
+.emuarcade-clip-rolling-waiting {
+  color: #fbbf24 !important;
+}

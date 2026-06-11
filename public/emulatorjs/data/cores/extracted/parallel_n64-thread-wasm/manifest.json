@@ -1,0 +1,14 @@
+{
+  "files": [
+    "build.json",
+    "core.json",
+    "parallel_n64_libretro.js",
+    "parallel_n64_libretro.wasm"
+  ],
+  "js": "parallel_n64_libretro.js",
+  "wasm": "parallel_n64_libretro.wasm",
+  "worker": null,
+  "build": "build.json",
+  "core": "core.json",
+  "license": null
+}

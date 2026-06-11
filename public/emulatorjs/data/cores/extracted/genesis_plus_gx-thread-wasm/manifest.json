@@ -1,0 +1,15 @@
+{
+  "files": [
+    "build.json",
+    "core.json",
+    "genesis_plus_gx_libretro.js",
+    "genesis_plus_gx_libretro.wasm",
+    "license.txt"
+  ],
+  "js": "genesis_plus_gx_libretro.js",
+  "wasm": "genesis_plus_gx_libretro.wasm",
+  "worker": null,
+  "build": "build.json",
+  "core": "core.json",
+  "license": "license.txt"
+}
