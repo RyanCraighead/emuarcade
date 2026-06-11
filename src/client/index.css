@@ -57,372 +57,631 @@ body {
 }
 
 .emuarcade-launch-shell {
+  display: grid;
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
-  padding: 8px;
+  padding: 10px;
+  place-items: center;
 }
 
-.emuarcade-launch-layout {
+.emuarcade-launch-surface {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.035), transparent 42%),
+    #101315;
+  border: 1px solid #303538;
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.34);
+  color: inherit;
+  cursor: pointer;
   display: grid;
-  gap: 12px;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
-  height: 100%;
+  gap: 10px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: min(100%, 250px);
   min-height: 0;
+  overflow: hidden;
   padding: 14px;
+  text-align: left;
+  transition:
+    border-color 180ms ease,
+    transform 180ms ease;
+  width: min(100%, 1280px);
 }
 
-.emuarcade-launch-main {
-  align-content: space-between;
-  display: grid;
+.emuarcade-launch-surface:hover,
+.emuarcade-launch-surface:focus-visible {
+  border-color: #ff4500;
+  outline: none;
+}
+
+.emuarcade-launch-surface:active {
+  transform: translateY(1px);
+}
+
+.emuarcade-launch-header,
+.emuarcade-launch-brand,
+.emuarcade-launch-ready,
+.emuarcade-launch-content,
+.emuarcade-launch-context,
+.emuarcade-launch-action,
+.emuarcade-feature-strip,
+.emuarcade-feature,
+.emuarcade-game-row {
+  display: flex;
+}
+
+.emuarcade-launch-header {
+  align-items: center;
   gap: 12px;
-  min-height: 0;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.emuarcade-launch-brand {
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 
 .emuarcade-launch-logo {
-  height: 48px;
-  width: 48px;
+  align-items: center;
+  background: #181b1d;
+  border: 1px solid #34393c;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.035);
+  display: grid;
+  flex: 0 0 auto;
+  height: 56px;
+  place-items: center;
+  width: 56px;
 }
 
-.emuarcade-launch-logo-image {
-  height: 36px;
-  width: 36px;
+.emuarcade-launch-logo img {
+  height: 42px;
+  width: 42px;
+}
+
+.emuarcade-launch-title-block {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
 }
 
 .emuarcade-launch-title {
-  font-size: 20px;
+  color: #fffaf0;
+  display: block;
+  font-size: clamp(24px, 3.2vw, 42px);
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.emuarcade-launch-crt {
-  padding: 12px;
+.emuarcade-launch-subtitle {
+  color: #a8adb4;
+  display: block;
+  font-size: clamp(12px, 1.45vw, 20px);
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.emuarcade-launch-open {
-  height: 40px;
-  padding-inline: 16px;
+.emuarcade-launch-ready {
+  align-items: center;
+  background: rgba(31, 113, 77, 0.2);
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  border-radius: 999px;
+  color: #73f0aa;
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-weight: 800;
+  gap: 8px;
+  padding: 8px 13px;
 }
 
-.emuarcade-launch-cabinet-wrap {
+.emuarcade-launch-ready-dot {
+  background: #34d399;
+  border-radius: 999px;
+  box-shadow: 0 0 16px rgba(52, 211, 153, 0.55);
+  height: 10px;
+  width: 10px;
+}
+
+.emuarcade-launch-content {
+  align-items: stretch;
+  gap: 16px;
+  min-height: 0;
+}
+
+.emuarcade-launch-context,
+.emuarcade-most-played,
+.emuarcade-launch-action {
+  min-width: 0;
+}
+
+.emuarcade-launch-context {
+  align-items: center;
+  border-right: 1px solid #34393c;
+  gap: 12px;
+  padding-right: 16px;
+  width: 30%;
+}
+
+.emuarcade-launch-context-icon {
+  align-items: center;
+  border: 1px solid #34393c;
+  border-radius: 9px;
+  color: #f8f4eb;
+  display: grid;
+  flex: 0 0 auto;
+  height: 38px;
+  place-items: center;
+  width: 38px;
+}
+
+.emuarcade-launch-context-icon svg {
+  height: 20px;
+  width: 20px;
+}
+
+.emuarcade-launch-context-title,
+.emuarcade-launch-context-copy {
+  display: block;
+  line-height: 1.25;
+}
+
+.emuarcade-launch-context-title {
+  color: #f8f4eb;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.emuarcade-launch-context-copy {
+  color: #9da2aa;
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.emuarcade-most-played {
+  border-right: 1px solid #34393c;
+  display: grid;
+  flex: 1 1 auto;
+  gap: 7px;
+  min-height: 0;
+  padding-right: 16px;
+}
+
+.emuarcade-most-played-head {
+  align-items: center;
+  color: #f8f4eb;
+  display: flex;
+  font-size: 14px;
+  font-weight: 800;
+  justify-content: space-between;
+  line-height: 1;
+}
+
+.emuarcade-view-all {
+  color: #9da2aa;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.emuarcade-game-list {
+  display: grid;
+  gap: 6px;
+  min-height: 0;
+}
+
+.emuarcade-game-row {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid #2a2f32;
+  border-radius: 10px;
+  gap: 10px;
+  min-height: 38px;
+  padding: 7px 9px;
+}
+
+.emuarcade-game-row:nth-of-type(n + 4) {
   display: none;
 }
 
-.emuarcade-launch-cabinet {
-  height: 188px;
-  width: 148px;
+.emuarcade-game-mark {
+  align-items: center;
+  border-radius: 7px;
+  color: #101315;
+  display: grid;
+  flex: 0 0 auto;
+  font-size: 15px;
+  font-weight: 900;
+  height: 26px;
+  place-items: center;
+  width: 26px;
 }
 
-@media (min-aspect-ratio: 4 / 3) {
-  .emuarcade-launch-layout {
-    grid-template-columns: minmax(0, 1fr) 156px;
-  }
-
-  .emuarcade-launch-cabinet-wrap {
-    display: grid;
-  }
-
-  .emuarcade-launch-cabinet {
-    height: 188px;
-    width: 148px;
-  }
+.emuarcade-game-mark--orange {
+  background: #ff7840;
 }
 
-@media (min-aspect-ratio: 2 / 1), (max-height: 230px) {
+.emuarcade-game-mark--violet {
+  background: #9f7aea;
+}
+
+.emuarcade-game-mark--blue {
+  background: #60a5fa;
+}
+
+.emuarcade-game-mark--red {
+  background: #f87171;
+}
+
+.emuarcade-game-title {
+  color: #f8f4eb;
+  flex: 1 1 auto;
+  font-size: 15px;
+  font-weight: 800;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.emuarcade-game-system {
+  border: 1px solid #42484d;
+  border-radius: 7px;
+  color: #c8cbd0;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 48px;
+  padding: 4px 7px;
+  text-align: center;
+}
+
+.emuarcade-game-plays {
+  color: #a4a9b1;
+  flex: 0 0 auto;
+  font-size: 12px;
+  min-width: 60px;
+  text-align: right;
+}
+
+.emuarcade-launch-action {
+  align-items: center;
+  flex-direction: column;
+  justify-content: center;
+  width: 28%;
+}
+
+.emuarcade-launch-open {
+  align-items: center;
+  background: #ff4500;
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(255, 69, 0, 0.24);
+  color: #fff;
+  display: inline-flex;
+  font-size: 18px;
+  font-weight: 900;
+  gap: 10px;
+  justify-content: center;
+  min-height: 56px;
+  padding: 0 26px;
+  transition: background 180ms ease;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.group:hover .emuarcade-launch-open,
+.group:focus-visible .emuarcade-launch-open {
+  background: #ff6424;
+}
+
+.emuarcade-launch-open svg {
+  height: 24px;
+  width: 24px;
+}
+
+.emuarcade-launch-action-note {
+  color: #9da2aa;
+  display: block;
+  font-size: 12px;
+  line-height: 1.25;
+  margin-top: 10px;
+  text-align: center;
+}
+
+.emuarcade-feature-strip {
+  border-top: 1px solid #303538;
+  gap: 0;
+  min-width: 0;
+  padding-top: 10px;
+}
+
+.emuarcade-feature {
+  align-items: center;
+  border-right: 1px solid #303538;
+  color: #f8f4eb;
+  flex: 1 1 0;
+  gap: 10px;
+  justify-content: center;
+  min-width: 0;
+}
+
+.emuarcade-feature:last-child {
+  border-right: 0;
+}
+
+.emuarcade-feature svg {
+  color: #f8f4eb;
+  flex: 0 0 auto;
+  height: 20px;
+  width: 20px;
+}
+
+.emuarcade-feature-label,
+.emuarcade-feature-detail {
+  display: block;
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.emuarcade-feature-label {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.emuarcade-feature-detail {
+  color: #9da2aa;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+@media (max-height: 250px), (min-aspect-ratio: 2 / 1) {
   .emuarcade-launch-shell {
-    padding: 6px;
+    padding: 8px;
   }
 
-  .emuarcade-launch-layout {
-    align-content: center;
-    gap: 10px;
-    grid-template-columns: minmax(0, 1fr) auto;
-    padding: 10px 12px;
-  }
-
-  .emuarcade-launch-main {
+  .emuarcade-launch-surface {
     gap: 8px;
+    height: min(100%, 268px);
+    padding: 12px;
   }
 
   .emuarcade-launch-logo {
-    height: 40px;
-    width: 40px;
+    height: 44px;
+    width: 44px;
   }
 
-  .emuarcade-launch-logo-image {
-    height: 30px;
-    width: 30px;
+  .emuarcade-launch-logo img {
+    height: 34px;
+    width: 34px;
   }
 
   .emuarcade-launch-title {
-    font-size: 18px;
+    font-size: 25px;
   }
 
-  .emuarcade-launch-body {
-    gap: 0;
+  .emuarcade-launch-subtitle {
+    font-size: 13px;
   }
 
-  .emuarcade-launch-crt {
-    min-height: 58px;
-    padding: 10px;
+  .emuarcade-launch-ready {
+    font-size: 12px;
+    padding: 6px 10px;
   }
 
-  .emuarcade-launch-status,
-  .emuarcade-launch-cabinet-wrap {
+  .emuarcade-launch-content {
+    gap: 12px;
+  }
+
+  .emuarcade-launch-context {
+    width: 28%;
+  }
+
+  .emuarcade-launch-context-copy,
+  .emuarcade-launch-action-note,
+  .emuarcade-feature-detail,
+  .emuarcade-view-all {
     display: none;
   }
 
-  .emuarcade-launch-cta {
-    align-items: flex-end;
-    align-self: center;
-    flex-direction: column;
-    grid-column: 2;
-    grid-row: 1;
-    justify-content: center;
+  .emuarcade-game-row {
+    min-height: 38px;
+    padding: 5px 8px;
   }
 
-  .emuarcade-launch-entry-label {
-    display: none;
+  .emuarcade-game-mark {
+    height: 22px;
+    width: 22px;
+  }
+
+  .emuarcade-game-title {
+    font-size: 13px;
+  }
+
+  .emuarcade-game-system,
+  .emuarcade-game-plays {
+    font-size: 11px;
   }
 
   .emuarcade-launch-open {
-    height: 42px;
-    padding-inline: 14px;
-    white-space: nowrap;
+    font-size: 16px;
+    min-height: 54px;
+    padding-inline: 18px;
+  }
+
+  .emuarcade-feature-strip {
+    padding-top: 10px;
+  }
+
+  .emuarcade-feature {
+    gap: 7px;
+  }
+
+  .emuarcade-feature-label {
+    font-size: 12px;
   }
 }
 
 @media (max-aspect-ratio: 1 / 1) {
-  .emuarcade-launch-layout {
+  .emuarcade-launch-shell {
+    padding: 8px;
+  }
+
+  .emuarcade-launch-surface {
+    border-radius: 18px;
+    gap: 12px;
+    height: 100%;
+    padding: 14px;
+  }
+
+  .emuarcade-launch-logo {
+    height: 58px;
+    width: 58px;
+  }
+
+  .emuarcade-launch-logo img {
+    height: 44px;
+    width: 44px;
+  }
+
+  .emuarcade-launch-title {
+    font-size: clamp(28px, 8vw, 38px);
+  }
+
+  .emuarcade-launch-subtitle {
+    font-size: clamp(13px, 3.4vw, 17px);
+  }
+
+  .emuarcade-launch-ready {
+    font-size: 14px;
+    padding: 7px 11px;
+  }
+
+  .emuarcade-launch-content {
+    display: grid;
+    gap: 12px;
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .emuarcade-launch-context {
+    display: none;
+  }
+
+  .emuarcade-most-played {
+    border: 1px solid #303538;
+    border-radius: 14px;
     padding: 12px;
   }
-}
 
-@media (max-height: 190px) {
-  .emuarcade-launch-layout {
+  .emuarcade-most-played-head {
+    font-size: 17px;
+    margin-bottom: 2px;
+  }
+
+  .emuarcade-view-all {
+    display: inline;
+    font-size: 13px;
+  }
+
+  .emuarcade-game-row:nth-of-type(n + 4) {
+    display: flex;
+  }
+
+  .emuarcade-game-row {
+    min-height: 52px;
     padding: 8px 10px;
   }
 
-  .emuarcade-launch-crt {
-    min-height: 0;
+  .emuarcade-game-mark {
+    height: 34px;
+    width: 34px;
   }
 
-  .emuarcade-launch-copy,
-  .emuarcade-launch-meta {
+  .emuarcade-game-title {
+    font-size: clamp(15px, 4.2vw, 22px);
+  }
+
+  .emuarcade-game-system {
+    min-width: 52px;
+  }
+
+  .emuarcade-game-plays {
+    min-width: 64px;
+  }
+
+  .emuarcade-launch-action {
+    width: 100%;
+  }
+
+  .emuarcade-launch-open {
+    font-size: clamp(22px, 6vw, 32px);
+    min-height: 64px;
+    width: 100%;
+  }
+
+  .emuarcade-launch-action-note {
+    display: none;
+  }
+
+  .emuarcade-feature-strip {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding-top: 0;
+  }
+
+  .emuarcade-feature {
+    border: 1px solid #303538;
+    border-radius: 12px;
+    display: grid;
+    gap: 4px;
+    justify-items: center;
+    min-height: 72px;
+    padding: 8px 4px;
+    text-align: center;
+  }
+
+  .emuarcade-feature-label {
+    font-size: clamp(11px, 3vw, 14px);
+  }
+
+  .emuarcade-feature-detail {
     display: none;
   }
 }
 
-@keyframes emuarcade-scan {
-  0% {
-    transform: translateY(-120%);
-    opacity: 0;
-  }
-  18% {
-    opacity: 0.65;
-  }
-  100% {
-    transform: translateY(420%);
-    opacity: 0;
-  }
-}
-
-@keyframes emuarcade-float {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0);
-    opacity: 0.38;
-  }
-  50% {
-    transform: translate3d(0, -10px, 0);
-    opacity: 0.95;
-  }
-}
-
-@keyframes emuarcade-pulse {
-  0%,
-  100% {
-    opacity: 0.55;
-    transform: scale(0.92);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@keyframes emuarcade-cabinet-glow {
-  0%,
-  100% {
-    box-shadow:
-      0 18px 42px rgba(0, 0, 0, 0.38),
-      0 0 0 rgba(52, 211, 153, 0);
-  }
-  50% {
-    box-shadow:
-      0 18px 42px rgba(0, 0, 0, 0.38),
-      0 0 32px rgba(52, 211, 153, 0.16);
-  }
-}
-
-.emuarcade-feed-card::before {
-  position: absolute;
-  inset: -40% -10%;
-  content: '';
-  background:
-    radial-gradient(
-      circle at 20% 20%,
-      rgba(52, 211, 153, 0.18),
-      transparent 22%
-    ),
-    radial-gradient(circle at 82% 25%, rgba(255, 69, 0, 0.18), transparent 20%),
-    radial-gradient(
-      circle at 50% 100%,
-      rgba(96, 165, 250, 0.12),
-      transparent 30%
-    );
-  opacity: 0.95;
-  pointer-events: none;
-}
-
-.emuarcade-pixel-field {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-
-.emuarcade-pixel {
-  position: absolute;
-  width: 7px;
-  height: 7px;
-  border-radius: 2px;
-  box-shadow: 0 0 14px currentColor;
-  animation: emuarcade-float 4.8s ease-in-out infinite;
-}
-
-.emuarcade-pixel:nth-child(1) {
-  left: 9%;
-  top: 18%;
-  animation-delay: -0.8s;
-}
-
-.emuarcade-pixel:nth-child(2) {
-  left: 36%;
-  top: 12%;
-  animation-delay: -2.1s;
-}
-
-.emuarcade-pixel:nth-child(3) {
-  left: 76%;
-  top: 19%;
-  animation-delay: -1.4s;
-}
-
-.emuarcade-pixel:nth-child(4) {
-  left: 90%;
-  top: 62%;
-  animation-delay: -3s;
-}
-
-.emuarcade-pixel:nth-child(5) {
-  left: 18%;
-  top: 78%;
-  animation-delay: -3.8s;
-}
-
-.emuarcade-crt {
-  box-shadow:
-    inset 0 0 20px rgba(52, 211, 153, 0.08),
-    0 0 24px rgba(255, 69, 0, 0.08);
-}
-
-.emuarcade-scanline {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  height: 22%;
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    rgba(52, 211, 153, 0.2),
-    transparent
-  );
-  animation: emuarcade-scan 3.6s linear infinite;
-}
-
-.emuarcade-live-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: #34d399;
-  box-shadow: 0 0 12px rgba(52, 211, 153, 0.8);
-  animation: emuarcade-pulse 1.6s ease-in-out infinite;
-}
-
-.emuarcade-open-button {
-  position: relative;
-  overflow: hidden;
-}
-
-.emuarcade-open-button::after {
-  position: absolute;
-  inset: 0;
-  content: '';
-  background: linear-gradient(
-    110deg,
-    transparent,
-    rgba(255, 255, 255, 0.28),
-    transparent
-  );
-  transform: translateX(-120%);
-  transition: transform 0.6s ease;
-}
-
-.group:hover .emuarcade-open-button::after {
-  transform: translateX(120%);
-}
-
-.emuarcade-mini-cabinet {
-  animation: emuarcade-cabinet-glow 3.8s ease-in-out infinite;
-}
-
-.emuarcade-screen-sprite {
-  position: absolute;
-  display: block;
-  width: 14px;
-  height: 14px;
-  background: #34d399;
-  box-shadow:
-    0 0 0 5px rgba(52, 211, 153, 0.18),
-    0 0 18px rgba(52, 211, 153, 0.72);
-  clip-path: polygon(
-    30% 0,
-    70% 0,
-    70% 30%,
-    100% 30%,
-    100% 70%,
-    70% 70%,
-    70% 100%,
-    30% 100%,
-    30% 70%,
-    0 70%,
-    0 30%,
-    30% 30%
-  );
-  animation: emuarcade-pulse 2s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .emuarcade-pixel,
-  .emuarcade-scanline,
-  .emuarcade-live-dot,
-  .emuarcade-mini-cabinet,
-  .emuarcade-screen-sprite {
-    animation: none;
+@media (max-width: 390px), (max-height: 430px) and (max-aspect-ratio: 1 / 1) {
+  .emuarcade-launch-surface {
+    gap: 9px;
+    padding: 10px;
   }
 
-  .emuarcade-open-button::after {
+  .emuarcade-launch-logo {
+    height: 48px;
+    width: 48px;
+  }
+
+  .emuarcade-launch-logo img {
+    height: 36px;
+    width: 36px;
+  }
+
+  .emuarcade-game-row {
+    min-height: 44px;
+  }
+
+  .emuarcade-game-plays {
     display: none;
+  }
+
+  .emuarcade-feature {
+    min-height: 54px;
   }
 }

@@ -63,6 +63,7 @@ import {
   updateGameSettings,
 } from './gameLibrary';
 import type { StoredGame } from './gameLibrary';
+import { recordGameLaunch } from './playStats';
 import { detectRomMetadata } from './romMetadata';
 import type { RomMetadata } from './romMetadata';
 import { trpc } from './trpc';
@@ -1347,6 +1348,11 @@ export const App = () => {
     setActiveGameId(game.id);
     setRunnerKey((current) => current + 1);
     setActivePanel('play');
+    recordGameLaunch({
+      core: game.core,
+      gameId: game.id,
+      title: game.title,
+    });
 
     try {
       await trpc.recordLaunch.mutate({
