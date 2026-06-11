@@ -1,13 +1,19 @@
 import './index.css';
 
 import {
+  Blocks,
+  CarFront,
+  Castle,
+  ChevronRight,
   Film,
   FolderOpen,
   Hand,
+  Monitor,
   Play,
+  Rocket,
   Save,
-  ShieldCheck,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { requestExpandedMode } from '@devvit/web/client';
 import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -22,13 +28,38 @@ type LauncherGame = {
   system: string;
   plays: number;
   accent: string;
+  Icon: LucideIcon;
 };
 
 const fallbackGames: readonly LauncherGame[] = [
-  { title: 'Star Runner', system: 'NES', plays: 128, accent: 'orange' },
-  { title: 'Puzzle Blocks', system: 'GBA', plays: 96, accent: 'violet' },
-  { title: 'Castle Quest', system: 'SNES', plays: 72, accent: 'blue' },
-  { title: 'Pocket Rally', system: 'N64', plays: 61, accent: 'red' },
+  {
+    title: 'Star Runner',
+    system: 'NES',
+    plays: 128,
+    accent: 'orange',
+    Icon: Rocket,
+  },
+  {
+    title: 'Puzzle Blocks',
+    system: 'GBA',
+    plays: 96,
+    accent: 'violet',
+    Icon: Blocks,
+  },
+  {
+    title: 'Castle Quest',
+    system: 'SNES',
+    plays: 72,
+    accent: 'blue',
+    Icon: Castle,
+  },
+  {
+    title: 'Pocket Rally',
+    system: 'N64',
+    plays: 61,
+    accent: 'red',
+    Icon: CarFront,
+  },
 ];
 
 const features = [
@@ -39,13 +70,19 @@ const features = [
 ];
 
 const toLauncherGames = (stats: PlayStat[]): LauncherGame[] => {
-  const accents = ['orange', 'violet', 'blue', 'red'];
+  const marks = [
+    { accent: 'orange', Icon: Rocket },
+    { accent: 'violet', Icon: Blocks },
+    { accent: 'blue', Icon: Castle },
+    { accent: 'red', Icon: CarFront },
+  ];
 
   return stats.slice(0, 4).map((stat, index) => ({
     title: stat.title,
     system: getPlayStatSystemLabel(stat.core),
     plays: stat.playCount,
-    accent: accents[index] ?? 'orange',
+    accent: marks[index]?.accent ?? 'orange',
+    Icon: marks[index]?.Icon ?? Rocket,
   }));
 };
 
@@ -84,52 +121,59 @@ export const Splash = () => {
         </span>
 
         <span className="emuarcade-launch-content">
-          <span className="emuarcade-launch-context">
-            <span className="emuarcade-launch-context-icon" aria-hidden="true">
-              <ShieldCheck />
-            </span>
-            <span>
-              <span className="emuarcade-launch-context-title">
-                Local emulator
+          <span className="emuarcade-play-panel">
+            <span className="emuarcade-most-played">
+              <span className="emuarcade-most-played-head">
+                <span>
+                  Most played<span className="emuarcade-games-word"> games</span>
+                </span>
+                <span className="emuarcade-view-all">
+                  View all
+                  <ChevronRight />
+                </span>
               </span>
-              <span className="emuarcade-launch-context-copy">
-                Games run on your device.
+
+              <span className="emuarcade-game-list">
+                {games.map((game) => {
+                  const Icon = game.Icon;
+
+                  return (
+                    <span className="emuarcade-game-row" key={game.title}>
+                      <span
+                        className={`emuarcade-game-mark emuarcade-game-mark--${game.accent}`}
+                        aria-hidden="true"
+                      >
+                        <Icon />
+                      </span>
+                      <span className="emuarcade-game-title">{game.title}</span>
+                      <span className="emuarcade-game-system">
+                        {game.system}
+                      </span>
+                      <span className="emuarcade-game-plays">
+                        {game.plays} plays
+                      </span>
+                    </span>
+                  );
+                })}
               </span>
             </span>
-          </span>
 
-          <span className="emuarcade-most-played">
-            <span className="emuarcade-most-played-head">
-              <span>Most played</span>
-              <span className="emuarcade-view-all">View all</span>
-            </span>
-
-            <span className="emuarcade-game-list">
-              {games.map((game) => (
-                <span className="emuarcade-game-row" key={game.title}>
-                  <span
-                    className={`emuarcade-game-mark emuarcade-game-mark--${game.accent}`}
-                    aria-hidden="true"
-                  >
-                    {game.title.slice(0, 1)}
+            <span className="emuarcade-launch-action">
+              <span className="emuarcade-launch-open">
+                <Play />
+                Open Arcade
+              </span>
+              <span className="emuarcade-launch-action-note">
+                <Monitor />
+                <span>
+                  <span className="emuarcade-launch-action-title">
+                    Local emulator
                   </span>
-                  <span className="emuarcade-game-title">{game.title}</span>
-                  <span className="emuarcade-game-system">{game.system}</span>
-                  <span className="emuarcade-game-plays">
-                    {game.plays} plays
+                  <span className="emuarcade-launch-action-copy">
+                    All games run locally on your device.
                   </span>
                 </span>
-              ))}
-            </span>
-          </span>
-
-          <span className="emuarcade-launch-action">
-            <span className="emuarcade-launch-open">
-              <Play />
-              Open Arcade
-            </span>
-            <span className="emuarcade-launch-action-note">
-              Browse your local library from Reddit.
+              </span>
             </span>
           </span>
         </span>
