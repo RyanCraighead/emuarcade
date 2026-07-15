@@ -25,6 +25,7 @@ type LocalClip = {
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 const localClipStore = new Map<string, LocalClip>();
 let localLaunchCount = 0;
+let localViewerSeen = false;
 
 const sendJson = (
   response: ServerResponse,
@@ -86,6 +87,16 @@ const createLocalTrpcContext = (): TrpcContext => {
         subredditName: 'local-dev',
         postId: 'local-post',
         launchCount: localLaunchCount,
+      };
+    },
+    getViewerState: async () => {
+      const isNewPlayer = !localViewerSeen;
+
+      localViewerSeen = true;
+
+      return {
+        isAuthenticated: true,
+        isNewPlayer,
       };
     },
     recordLaunch: async () => {

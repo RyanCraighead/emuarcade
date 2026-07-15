@@ -69,6 +69,11 @@ export type LaunchResult = {
   launchCount: number;
 };
 
+export type ViewerState = {
+  isAuthenticated: boolean;
+  isNewPlayer: boolean;
+};
+
 export type ClipShareInput = {
   dataUrl: string;
   thumbnailDataUrl: string | null;

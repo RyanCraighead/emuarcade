@@ -2,7 +2,8 @@
   "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
   "name": "emuarcade",
   "permissions": {
-    "media": true
+    "media": true,
+    "redis": true
   },
   "post": {
     "dir": "dist/client",

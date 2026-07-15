@@ -6,10 +6,12 @@ import type {
   ClipShareResult,
   LaunchInput,
   LaunchResult,
+  ViewerState,
 } from './emulator';
 
 export type TrpcContext = {
   getAppInfo: () => Promise<AppInfo>;
+  getViewerState: () => Promise<ViewerState>;
   recordLaunch: (input: LaunchInput) => Promise<LaunchResult>;
   shareClip: (input: ClipShareInput) => Promise<ClipShareResult>;
 };
@@ -80,6 +82,9 @@ const t = initTRPC.context<TrpcContext>().create();
 export const appRouter = t.router({
   appInfo: t.procedure.query(async ({ ctx }) => {
     return await ctx.getAppInfo();
+  }),
+  viewerState: t.procedure.query(async ({ ctx }) => {
+    return await ctx.getViewerState();
   }),
   recordLaunch: t.procedure
     .input(launchInputSchema)

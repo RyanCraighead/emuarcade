@@ -53,6 +53,7 @@ import type {
   ClipShareResult,
   EmulatorCore,
   EmulatorSettings,
+  ViewerState,
 } from '../shared/emulator';
 import {
   createGameFromFile,
@@ -130,6 +131,12 @@ const DESKTOP_LAYOUT_QUERY = '(min-width: 1024px)';
 const PHONE_ASPECT_LAYOUT_QUERY = '(max-aspect-ratio: 3/4)';
 const MOBILE_WIDTH_QUERY = '(max-width: 820px)';
 const MOBILE_POINTER_QUERY = '(pointer: coarse)';
+let viewerStateRequest: Promise<ViewerState> | null = null;
+
+const loadViewerState = () => {
+  viewerStateRequest ??= trpc.viewerState.query();
+  return viewerStateRequest;
+};
 
 const getIsDesktopLayout = () => {
   return window.matchMedia(DESKTOP_LAYOUT_QUERY).matches;
@@ -159,6 +166,17 @@ const getIsMobileImmersiveCapable = () => {
     window.matchMedia(MOBILE_WIDTH_QUERY).matches ||
     window.matchMedia(MOBILE_POINTER_QUERY).matches ||
     (globalThis.navigator?.maxTouchPoints ?? 0) > 0
+  );
+};
+
+const getInitialPhoneViewRotated = () => {
+  const isLocalPreview =
+    window.location.hostname === '127.0.0.1' ||
+    window.location.hostname === 'localhost';
+
+  return (
+    isLocalPreview &&
+    new URLSearchParams(window.location.search).get('rotated') === '1'
   );
 };
 
@@ -518,6 +536,8 @@ export const App = () => {
   const romInputRef = useRef<HTMLInputElement>(null);
   const biosInputRef = useRef<HTMLInputElement>(null);
   const runnerFrameRef = useRef<HTMLIFrameElement>(null);
+  const stageViewportRef = useRef<HTMLDivElement>(null);
+  const stageContentRef = useRef<HTMLDivElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const rollingRecorderRef = useRef<MediaRecorder | null>(null);
   const clipChunksRef = useRef<Blob[]>([]);
@@ -543,7 +563,9 @@ export const App = () => {
   const [activePanel, setActivePanel] = useState<PanelKey>('play');
   const [libraryPage, setLibraryPage] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [phoneViewRotated, setPhoneViewRotated] = useState(false);
+  const [phoneViewRotated, setPhoneViewRotated] = useState(
+    getInitialPhoneViewRotated
+  );
   const [clipState, setClipState] = useState<ClipCaptureState>('idle');
   const [clipRecordingMode, setClipRecordingMode] = useState<ClipRecordingMode>(
     getInitialClipRecordingMode
@@ -592,6 +614,68 @@ export const App = () => {
     setActivePanel('play');
     setPhoneViewRotated((current) => !current);
   };
+
+  useEffect(() => {
+    const viewport = stageViewportRef.current;
+    const content = stageContentRef.current;
+
+    if (!viewport || !content) {
+      return;
+    }
+
+    let frameId: number | null = null;
+    const updateSize = () => {
+      frameId = null;
+
+      if (!usePhoneImmersiveLayout) {
+        content.style.removeProperty('width');
+        content.style.removeProperty('height');
+        return;
+      }
+
+      const bounds = viewport.getBoundingClientRect();
+
+      if (bounds.width <= 0 || bounds.height <= 0) {
+        return;
+      }
+
+      content.style.width = `${bounds.height}px`;
+      content.style.height = `${bounds.width}px`;
+    };
+    const scheduleSizeUpdate = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+
+      frameId = window.requestAnimationFrame(updateSize);
+    };
+    const resizeObserver =
+      typeof ResizeObserver === 'function'
+        ? new ResizeObserver(scheduleSizeUpdate)
+        : null;
+    const visualViewport = window.visualViewport;
+
+    resizeObserver?.observe(viewport);
+    window.addEventListener('resize', scheduleSizeUpdate);
+    window.addEventListener('orientationchange', scheduleSizeUpdate);
+    visualViewport?.addEventListener('resize', scheduleSizeUpdate);
+    visualViewport?.addEventListener('scroll', scheduleSizeUpdate);
+    scheduleSizeUpdate();
+
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', scheduleSizeUpdate);
+      window.removeEventListener('orientationchange', scheduleSizeUpdate);
+      visualViewport?.removeEventListener('resize', scheduleSizeUpdate);
+      visualViewport?.removeEventListener('scroll', scheduleSizeUpdate);
+      content.style.removeProperty('width');
+      content.style.removeProperty('height');
+    };
+  }, [isDesktopLayout, usePhoneImmersiveLayout]);
 
   const stopRunnerFrame = useCallback(() => {
     runnerFrameRef.current?.contentWindow?.emuarcadeStop?.();
@@ -910,7 +994,7 @@ export const App = () => {
         state: clipState,
         type: 'emuarcade:clip-state',
       },
-      window.location.origin
+      '*'
     );
   }, [clipRecordingMode, clipState, rollingBufferActive]);
 
@@ -1019,7 +1103,10 @@ export const App = () => {
 
   useEffect(() => {
     const handleRunnerAction = (event: MessageEvent<unknown>) => {
-      if (event.origin !== window.location.origin) {
+      if (
+        event.origin !== window.location.origin &&
+        event.origin !== 'null'
+      ) {
         return;
       }
 
@@ -1174,14 +1261,30 @@ export const App = () => {
 
     setGames(library);
     setSelectedGameId((current) => selectId ?? current ?? library[0]?.id ?? null);
+    return library;
   }, []);
 
   useEffect(() => {
+    let mounted = true;
     const loadTimer = window.setTimeout(() => {
-      void loadLibrary();
+      void Promise.all([loadLibrary(), loadViewerState()])
+        .then(([library, viewerState]) => {
+          if (
+            mounted &&
+            viewerState.isNewPlayer &&
+            library.length === 0 &&
+            !getIsDesktopLayout()
+          ) {
+            setActivePanel('import');
+          }
+        })
+        .catch((error: unknown) => {
+          console.warn('Unable to initialize player state', error);
+        });
     }, 0);
 
     return () => {
+      mounted = false;
       window.clearTimeout(loadTimer);
     };
   }, [loadLibrary]);
@@ -1794,8 +1897,11 @@ export const App = () => {
         usePhoneImmersiveLayout ? 'emuarcade-stage--phone-rotated' : ''
       }`}
     >
-      <div className="relative min-h-0 overflow-hidden">
-        <div className="emuarcade-stage-content">
+      <div
+        ref={stageViewportRef}
+        className="relative min-h-0 overflow-hidden"
+      >
+        <div ref={stageContentRef} className="emuarcade-stage-content">
           {runnerSrc ? (
             <iframe
               ref={setRunnerFrame}
@@ -1928,7 +2034,7 @@ export const App = () => {
     <div
       className={`emuarcade-app-shell ${
         usePhoneImmersiveLayout ? 'emuarcade-app-shell--phone-immersive' : ''
-      } grid h-[100svh] overflow-hidden bg-[#0d0e10] text-[#f7f3ea]`}
+      } grid h-full min-h-0 overflow-hidden bg-[#0d0e10] text-[#f7f3ea]`}
     >
       <div className="grid min-h-0 grid-rows-[minmax(0,1fr)]">
         <main

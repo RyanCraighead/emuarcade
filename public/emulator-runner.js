@@ -299,6 +299,7 @@
 
     touchEditor.cleanup.forEach((cleanup) => cleanup());
     document.body.classList.remove('emuarcade-touch-editing');
+    document.body.classList.remove('emuarcade-touch-remove-mode');
     touchEditor.root.remove();
 
     if (saveChanges && activeTouchLayout) {
@@ -372,12 +373,14 @@
     root.className = 'emuarcade-touch-editor';
     title.textContent = 'Touch Controls';
     removeButton.type = 'button';
-    removeButton.textContent = 'Remove';
+    removeButton.textContent = 'Hide control';
+    removeButton.setAttribute('aria-pressed', 'false');
     resetButton.type = 'button';
     resetButton.textContent = 'Reset';
     doneButton.type = 'button';
     doneButton.textContent = 'Done';
-    hint.textContent = 'Drag controls. Remove toggles visibility.';
+    hint.setAttribute('aria-live', 'polite');
+    hint.textContent = 'Drag controls to move them.';
 
     root.append(title, hint, removeButton, resetButton, doneButton);
     document.body.appendChild(root);
@@ -392,23 +395,35 @@
 
     applyTouchLayout(layout, true);
 
-    const setRemoveMode = () => {
+    const setRemoveMode = (enabled) => {
       if (!touchEditor) {
         return;
       }
 
-      touchEditor.removeMode = !touchEditor.removeMode;
-      removeButton.classList.toggle('is-active', touchEditor.removeMode);
+      touchEditor.removeMode = enabled;
+      removeButton.classList.toggle('is-active', enabled);
+      removeButton.setAttribute('aria-pressed', String(enabled));
+      removeButton.textContent = enabled ? 'Cancel hide' : 'Hide control';
+      hint.textContent = enabled
+        ? 'Tap a control to hide or restore it.'
+        : 'Drag controls to move them.';
+      document.body.classList.toggle('emuarcade-touch-remove-mode', enabled);
     };
 
     const onDone = () => closeTouchEditor(true);
-    const onReset = () => resetTouchLayout();
+    const onReset = () => {
+      setRemoveMode(false);
+      resetTouchLayout();
+    };
+    const toggleRemoveMode = () => {
+      setRemoveMode(!touchEditor?.removeMode);
+    };
 
-    removeButton.addEventListener('click', setRemoveMode);
+    removeButton.addEventListener('click', toggleRemoveMode);
     resetButton.addEventListener('click', onReset);
     doneButton.addEventListener('click', onDone);
     touchEditor.cleanup.push(() =>
-      removeButton.removeEventListener('click', setRemoveMode)
+      removeButton.removeEventListener('click', toggleRemoveMode)
     );
     touchEditor.cleanup.push(() =>
       resetButton.removeEventListener('click', onReset)
@@ -438,6 +453,7 @@
 
       if (touchEditor.removeMode) {
         toggleTouchControlHidden(control);
+        setRemoveMode(false);
         return;
       }
 
@@ -872,7 +888,7 @@
         action,
         type: 'emuarcade:runner-action',
       },
-      window.location.origin
+      '*'
     );
   };
 
@@ -926,7 +942,10 @@
   };
 
   window.addEventListener('message', (event) => {
-    if (event.origin !== window.location.origin) {
+    if (
+      event.source !== window.parent ||
+      (event.origin !== window.location.origin && event.origin !== 'null')
+    ) {
       return;
     }
 
