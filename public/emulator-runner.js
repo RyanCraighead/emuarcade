@@ -32,8 +32,12 @@
     '<svg viewBox="0 0 512 512"><path d="M48 128c0-17.7 14.3-32 32-32h227.1l-54.6-54.6C240 28.9 240 8.6 252.5-3.9s32.8-12.5 45.3 0l109.3 109.3c12.5 12.5 12.5 32.8 0 45.3L297.8 260c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L307.1 160H112v224h288v-96c0-17.7 14.3-32 32-32s32 14.3 32 32v128c0 17.7-14.3 32-32 32H80c-17.7 0-32-14.3-32-32V128z"/></svg>';
   const touchControlsIcon =
     '<svg viewBox="0 0 640 512"><path d="M96 224c-35.3 0-64 28.7-64 64v48c0 79.5 64.5 144 144 144h288c79.5 0 144-64.5 144-144v-48c0-35.3-28.7-64-64-64h-34.7c-17 0-33.3-6.7-45.3-18.7L421.3 162.7c-12-12-28.3-18.7-45.3-18.7H264c-17 0-33.3 6.7-45.3 18.7L176 205.3c-12 12-28.3 18.7-45.3 18.7H96zm64 80h40v-40c0-8.8 7.2-16 16-16h32c8.8 0 16 7.2 16 16v40h40c8.8 0 16 7.2 16 16v32c0 8.8-7.2 16-16 16h-40v40c0 8.8-7.2 16-16 16h-32c-8.8 0-16-7.2-16-16v-40h-40c-8.8 0-16-7.2-16-16v-32c0-8.8 7.2-16 16-16zm304 88a40 40 0 1 1 0-80 40 40 0 1 1 0 80zm80-80a40 40 0 1 1 0-80 40 40 0 1 1 0 80zM120 32c13.3 0 24 10.7 24 24v72h72c13.3 0 24 10.7 24 24s-10.7 24-24 24h-72v72c0 13.3-10.7 24-24 24s-24-10.7-24-24v-72H24c-13.3 0-24-10.7-24-24s10.7-24 24-24h72V56c0-13.3 10.7-24 24-24z"/></svg>';
+  const shareStateIcon =
+    '<svg viewBox="0 0 512 512"><path d="M48 64c0-17.7 14.3-32 32-32h288c8.5 0 16.6 3.4 22.6 9.4l80 80c6 6 9.4 14.1 9.4 22.6v304c0 17.7-14.3 32-32 32H80c-17.7 0-32-14.3-32-32V64zm96 0v128h224V64H144zm240 368V288H128v144h256zM176 96h144v64H176V96z"/></svg>';
   let activeTouchLayout = null;
   let touchEditor = null;
+  let pendingSharedState = null;
+  let currentGame = null;
 
   const setStatus = (message, isError) => {
     if (!statusElement) {
@@ -878,18 +882,77 @@
     );
   };
 
-  const postParentAction = (action) => {
+  const postParentAction = (action, payload) => {
     if (window.parent === window) {
       return;
     }
 
     window.parent.postMessage(
-      {
+      Object.assign({
         action,
         type: 'emuarcade:runner-action',
-      },
+      }, payload || {}),
       '*'
     );
+  };
+
+  const shareCurrentState = async (game) => {
+    const emulator = getEmulator();
+
+    if (!emulator?.gameManager || typeof emulator.gameManager.getState !== 'function') {
+      displayEmulatorMessage('Save state is not ready');
+      return;
+    }
+
+    try {
+      const bytes = toUint8Array(emulator.gameManager.getState());
+
+      if (!bytes || bytes.byteLength === 0) {
+        displayEmulatorMessage('Could not capture save state');
+        return;
+      }
+
+      await saveLocalStateArtifact(game.id, bytes);
+      postParentAction('share-state', { state: bytes });
+      displayEmulatorMessage('Checkpoint ready to share');
+    } catch (error) {
+      console.warn('Unable to capture shared save state', error);
+      displayEmulatorMessage('Could not capture save state');
+    }
+  };
+
+  const applyPendingSharedState = async () => {
+    const emulator = getEmulator();
+    const bytes = pendingSharedState;
+
+    if (
+      !currentGame ||
+      !bytes ||
+      !emulator?.gameManager ||
+      typeof emulator.gameManager.loadState !== 'function'
+    ) {
+      return false;
+    }
+
+    try {
+      await persistLocalState(bytes);
+      await persistArtifactBytes(
+        currentGame.id,
+        'state',
+        getStateSlot(),
+        getBaseFileName() + '-' + getStateSlot() + '.state',
+        bytes
+      );
+      emulator.gameManager.loadState(bytes);
+      pendingSharedState = null;
+      displayEmulatorMessage('Shared checkpoint loaded');
+      postParentAction('shared-state-loaded');
+      return true;
+    } catch (error) {
+      console.warn('Unable to load shared save state', error);
+      displayEmulatorMessage('Could not load shared checkpoint');
+      return false;
+    }
   };
 
   const clipButtonState = {
@@ -951,7 +1014,22 @@
 
     const data = event.data;
 
-    if (!data || data.type !== 'emuarcade:clip-state') {
+    if (!data) {
+      return;
+    }
+
+    if (data.type === 'emuarcade:load-shared-state') {
+      const bytes = toUint8Array(data.state);
+
+      if (bytes && bytes.byteLength > 0) {
+        pendingSharedState = bytes;
+        void applyPendingSharedState();
+      }
+
+      return;
+    }
+
+    if (data.type !== 'emuarcade:clip-state') {
       return;
     }
 
@@ -996,6 +1074,13 @@
         },
         displayName: 'Edit Touch Controls',
         icon: touchControlsIcon,
+      },
+      emuarcadeShareState: {
+        callback: () => {
+          void shareCurrentState(game);
+        },
+        displayName: 'Share State',
+        icon: shareStateIcon,
       },
     };
 
@@ -1276,6 +1361,8 @@
       return;
     }
 
+    currentGame = game;
+
     const settings = normalizeSettings(game.settings);
     sessionSettings = settings;
     const gameUrl = createBlobUrl(game.romBlob);
@@ -1319,6 +1406,7 @@
           void loadAndApplyTouchLayout(game).then(() => {
             void maybeStartTouchSetup(game);
           });
+          void applyPendingSharedState();
         }, 500);
       },
       EJS_onLoadSave: () => {
@@ -1351,6 +1439,8 @@
 
     window.setTimeout(hideStatus, 1200);
   };
+
+  postParentAction('runner-ready');
 
   window.addEventListener('storage', (event) => {
     if (

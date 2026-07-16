@@ -83,6 +83,7 @@ export type ClipShareInput = {
   durationMs: number;
   gameTitle: string;
   core: EmulatorCore;
+  postTitle?: string | undefined;
 };
 
 export type ClipShareResult = {

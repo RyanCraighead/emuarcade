@@ -53,6 +53,14 @@ describe('bundled application assets', () => {
       inline: true,
     });
     expect(config.post.entrypoints.game.entry).toBe('game.html');
+    expect(config.post.entrypoints.shared).toMatchObject({
+      entry: 'shared.html',
+      inline: true,
+    });
+    expect(config.permissions.reddit.asUser).toEqual([
+      'SUBMIT_POST',
+      'SUBMIT_COMMENT',
+    ]);
     expect(packageManifest.license).toBe('GPL-3.0-only');
     await expectNonEmptyFile(path.join(process.cwd(), 'LICENSE'));
   });
@@ -73,6 +81,8 @@ describe('bundled application assets', () => {
       'window.emuarcadeCaptureStream = getCaptureStream'
     );
     expect(runner).toContain('window.parent.postMessage(');
+    expect(runner).toContain("displayName: 'Share State'");
+    expect(runner).toContain("data.type === 'emuarcade:load-shared-state'");
   });
 
   it('ships every responsive launcher asset', async () => {

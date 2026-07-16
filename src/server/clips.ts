@@ -36,7 +36,9 @@ const shareVideoClip = async (
     url: input.dataUrl,
     type: 'video',
   });
-  const postTitle = sanitizePostTitle(`EmuArcade clip: ${input.gameTitle}`);
+  const postTitle = sanitizePostTitle(
+    input.postTitle ?? `EmuArcade clip: ${input.gameTitle}`
+  );
   const richtext = new RichTextBuilder()
     .paragraph((paragraph) => {
       paragraph.text({
@@ -55,6 +57,7 @@ const shareVideoClip = async (
       });
     });
   const post = await reddit.submitPost({
+    runAs: 'USER',
     subredditName,
     title: postTitle,
     richtext,
@@ -82,7 +85,7 @@ const sharePreviewImage = async (
     type: 'image',
   });
   const postTitle = sanitizePostTitle(
-    `EmuArcade moment: ${input.gameTitle}`
+    input.postTitle ?? `EmuArcade moment: ${input.gameTitle}`
   );
   const richtext = new RichTextBuilder()
     .paragraph((paragraph) => {
@@ -102,6 +105,7 @@ const sharePreviewImage = async (
       });
     });
   const post = await reddit.submitPost({
+    runAs: 'USER',
     subredditName,
     title: postTitle,
     richtext,
@@ -124,11 +128,14 @@ const shareGifClip = async (
     url: input.dataUrl,
     type: 'gif',
   });
-  const postTitle = sanitizePostTitle(`EmuArcade GIF: ${input.gameTitle}`);
+  const postTitle = sanitizePostTitle(
+    input.postTitle ?? `EmuArcade GIF: ${input.gameTitle}`
+  );
   try {
     const post = await reddit.submitPost({
       imageUrls: [uploaded.mediaUrl],
       kind: 'image',
+      runAs: 'USER',
       subredditName,
       title: postTitle,
     });

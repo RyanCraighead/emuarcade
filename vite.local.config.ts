@@ -11,6 +11,17 @@ import type { Plugin, ViteDevServer } from 'vite';
 import { appRouter, clipShareInputSchema } from './src/shared/trpc';
 import type { ClipShareResult } from './src/shared/emulator';
 import type { TrpcContext } from './src/shared/trpc';
+import {
+  MAX_SHARED_POST_DATA_BYTES,
+  measurePostDataBytes,
+  sharedStateCommentInputSchema,
+  sharedStateShareInputSchema,
+  withSharedStatePreview,
+} from './src/shared/sharedState';
+import type {
+  SharedStatePostData,
+  SharedStateShareResult,
+} from './src/shared/sharedState';
 
 type LocalClip = {
   buffer: Buffer;
@@ -22,8 +33,15 @@ type LocalClip = {
   sizeBytes: number;
 };
 
+type LocalSharedState = {
+  mediaBuffer: Buffer | null;
+  mediaMimeType: string | null;
+  postData: SharedStatePostData;
+};
+
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 const localClipStore = new Map<string, LocalClip>();
+const localSharedStateStore = new Map<string, LocalSharedState>();
 let localLaunchCount = 0;
 let localViewerSeen = false;
 
@@ -219,6 +237,17 @@ const localDevServerPlugin = (): Plugin => {
             return;
           }
 
+          if (routePath === '/shared.html') {
+            await sendLocalHtml(
+              server,
+              response,
+              routePath,
+              'shared.html',
+              'shared.tsx'
+            );
+            return;
+          }
+
           if (routePath.startsWith('/api/trpc/')) {
             await nodeHTTPRequestHandler({
               router: appRouter,
@@ -261,6 +290,95 @@ const localDevServerPlugin = (): Plugin => {
               sizeBytes: input.sizeBytes,
             });
             sendJson(response, 200, result);
+            return;
+          }
+
+          if (routePath === '/api/share-state' && request.method === 'POST') {
+            const input = sharedStateShareInputSchema.parse(
+              await readRequestJson(request)
+            );
+            const shareId = crypto.randomUUID().replace(/-/g, '');
+            const parsedPreview = input.previewDataUrl
+              ? parseDataUrl(input.previewDataUrl)
+              : null;
+            const host = request.headers.host ?? '127.0.0.1:5174';
+            const mediaUrl = parsedPreview
+              ? `http://${host}/api/local-shares/${shareId}/media`
+              : null;
+            const postData = withSharedStatePreview(
+              input.postData,
+              mediaUrl,
+              input.previewKind
+            );
+            const postDataBytes = measurePostDataBytes(postData);
+
+            if (postDataBytes > MAX_SHARED_POST_DATA_BYTES) {
+              sendJson(response, 400, {
+                error: `Save state needs ${postDataBytes} post-data bytes`,
+              });
+              return;
+            }
+
+            localSharedStateStore.set(shareId, {
+              mediaBuffer: parsedPreview?.buffer ?? null,
+              mediaMimeType: parsedPreview?.mimeType ?? null,
+              postData,
+            });
+
+            const result: SharedStateShareResult = {
+              mediaUrl,
+              postDataBytes,
+              postId: `t3_${shareId}`,
+              postUrl: `/shared.html?localShare=${shareId}`,
+              subredditName: 'local-dev',
+            };
+
+            sendJson(response, 200, result);
+            return;
+          }
+
+          if (
+            routePath === '/api/share-state-comment' &&
+            request.method === 'POST'
+          ) {
+            const input = sharedStateCommentInputSchema.parse(
+              await readRequestJson(request)
+            );
+
+            sendJson(response, 200, {
+              commentId: `t1_${input.postId.slice(3)}`,
+            });
+            return;
+          }
+
+          if (routePath.startsWith('/api/local-shares/')) {
+            const [, , , shareId, action] = routePath.split('/');
+            const sharedState = shareId
+              ? localSharedStateStore.get(shareId)
+              : undefined;
+
+            if (!sharedState) {
+              sendNotFound(response);
+              return;
+            }
+
+            if (action === 'media') {
+              if (!sharedState.mediaBuffer || !sharedState.mediaMimeType) {
+                sendNotFound(response);
+                return;
+              }
+
+              response.statusCode = 200;
+              response.setHeader('Content-Type', sharedState.mediaMimeType);
+              response.setHeader(
+                'Content-Length',
+                sharedState.mediaBuffer.byteLength
+              );
+              response.end(sharedState.mediaBuffer);
+              return;
+            }
+
+            sendJson(response, 200, sharedState.postData);
             return;
           }
 

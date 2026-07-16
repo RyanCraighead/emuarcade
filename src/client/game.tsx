@@ -9,13 +9,17 @@ import {
   Download,
   FolderOpen,
   Gamepad2,
+  Image as ImageIcon,
   Library,
+  LockKeyhole,
+  MessageCircle,
   MonitorPlay,
   PanelLeftClose,
   PanelLeftOpen,
   Play,
   Settings2,
   Share2,
+  Save,
   SlidersHorizontal,
   Trash2,
   UploadCloud,
@@ -23,7 +27,7 @@ import {
   VolumeX,
   X,
 } from 'lucide-react';
-import { showToast } from '@devvit/web/client';
+import { navigateTo, showToast } from '@devvit/web/client';
 import { GIFEncoder, applyPalette, quantize } from 'gifenc';
 import {
   StrictMode,
@@ -55,6 +59,20 @@ import type {
   ViewerState,
 } from '../shared/emulator';
 import {
+  MAX_SHARED_POST_DATA_BYTES,
+  decodeSharedState,
+  encodeSharedState,
+  measurePostDataBytes,
+  withSharedStatePreview,
+} from '../shared/sharedState';
+import type {
+  EncodedSharedState,
+  SharedStatePostData,
+  SharedStatePreviewKind,
+  SharedStateShareInput,
+  SharedStateShareResult,
+} from '../shared/sharedState';
+import {
   createGameFromFile,
   deleteGame,
   gameMatchesRomFile,
@@ -66,6 +84,8 @@ import type { StoredGame } from './gameLibrary';
 import { recordGameLaunch } from './playStats';
 import { detectRomMetadata } from './romMetadata';
 import type { RomMetadata } from './romMetadata';
+import { createRomFingerprint } from './romIdentity';
+import { loadSharedPostData } from './sharedPostContext';
 import { trpc } from './trpc';
 
 declare global {
@@ -109,10 +129,33 @@ type GifEncodeProfile = {
   maxWidth: number;
 };
 
-type RunnerActionMessage = {
-  action: 'clip' | 'rotate';
-  type: 'emuarcade:runner-action';
+type RunnerActionMessage =
+  | {
+      action: 'clip' | 'rotate' | 'runner-ready' | 'shared-state-loaded';
+      type: 'emuarcade:runner-action';
+    }
+  | {
+      action: 'share-state';
+      state: Uint8Array;
+      type: 'emuarcade:runner-action';
+    };
+
+type StateShareDraft = EncodedSharedState & {
+  thumbnailDataUrl: string | null;
 };
+
+type PendingSharedState = {
+  bytes: Uint8Array;
+  gameId: string | null;
+  postData: SharedStatePostData;
+};
+
+type StateShareStatus =
+  | 'idle'
+  | 'compressing'
+  | 'sharing'
+  | 'commenting'
+  | 'shared';
 
 const LIBRARY_PAGE_SIZE = 6;
 const CLIP_MAX_DURATION_MS = 15_000;
@@ -121,6 +164,9 @@ const CLIP_CHUNK_INTERVAL_MS = 1_000;
 const CLIP_VIDEO_BITS_PER_SECOND = 1_800_000;
 const CLIP_MAX_SHARE_BYTES = 20 * 1024 * 1024;
 const CLIP_MODE_STORAGE_KEY = 'emuarcade-clip-mode';
+const SHARED_PREVIEW_URL_ESTIMATE = `https://preview.redd.it/${'x'.repeat(
+  220
+)}.gif`;
 const GIF_ENCODE_PROFILES: readonly GifEncodeProfile[] = [
   { colors: 256, fps: 15, maxWidth: 640 },
   { colors: 256, fps: 12, maxWidth: 560 },
@@ -216,9 +262,19 @@ const isRunnerActionMessage = (data: unknown): data is RunnerActionMessage => {
   const type = Reflect.get(data, 'type');
   const action = Reflect.get(data, 'action');
 
+  if (type !== 'emuarcade:runner-action') {
+    return false;
+  }
+
+  if (action === 'share-state') {
+    return Reflect.get(data, 'state') instanceof Uint8Array;
+  }
+
   return (
-    type === 'emuarcade:runner-action' &&
-    (action === 'clip' || action === 'rotate')
+    action === 'clip' ||
+    action === 'rotate' ||
+    action === 'runner-ready' ||
+    action === 'shared-state-loaded'
   );
 };
 
@@ -512,6 +568,85 @@ const postClipShare = async (
   return await response.json();
 };
 
+const readApiError = async (response: Response, fallback: string) => {
+  const payload: unknown = await response.json().catch(() => null);
+
+  if (
+    payload !== null &&
+    typeof payload === 'object' &&
+    typeof Reflect.get(payload, 'error') === 'string'
+  ) {
+    return Reflect.get(payload, 'error');
+  }
+
+  return fallback;
+};
+
+const postStateShare = async (
+  input: SharedStateShareInput
+): Promise<SharedStateShareResult> => {
+  const response = await fetch('/api/share-state', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readApiError(response, 'Could not share this state'));
+  }
+
+  return await response.json();
+};
+
+const postStateShareComment = async (postId: string, text: string) => {
+  const response = await fetch('/api/share-state-comment', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ postId, text }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readApiError(response, 'Could not post the comment'));
+  }
+};
+
+const findMatchingLocalGame = async (
+  games: StoredGame[],
+  postData: SharedStatePostData
+) => {
+  const candidates = games.filter(
+    (game) => game.core === postData.c && hasGameFiles(game)
+  );
+
+  for (const game of candidates) {
+    if (
+      game.romBlob &&
+      (await createRomFingerprint(game.romBlob, game.core)) === postData.r
+    ) {
+      return game;
+    }
+  }
+
+  return null;
+};
+
+const getEstimatedSharedPostDataBytes = (
+  postData: SharedStatePostData,
+  previewKind: SharedStatePreviewKind
+) => {
+  return measurePostDataBytes(
+    withSharedStatePreview(
+      postData,
+      previewKind === 'hidden' ? null : SHARED_PREVIEW_URL_ESTIMATE,
+      previewKind
+    )
+  );
+};
+
 const getGameSystemLabel = (game: StoredGame) => {
   return getSystemByCore(game.core)?.shortName ?? game.core;
 };
@@ -547,6 +682,7 @@ export const App = () => {
   const clipStartTimeRef = useRef<number | null>(null);
   const clipUrlRef = useRef<string | null>(null);
   const rollingMimeTypeRef = useRef('video/webm');
+  const pendingSharedStateRef = useRef<PendingSharedState | null>(null);
   const [selectedCore, setSelectedCore] = useState<EmulatorCore>('nes');
   const [title, setTitle] = useState('');
   const [titleSource, setTitleSource] = useState<
@@ -572,9 +708,43 @@ export const App = () => {
   const [rollingBufferActive, setRollingBufferActive] = useState(false);
   const [recordedClip, setRecordedClip] = useState<RecordedClip | null>(null);
   const [sharedClipUrl, setSharedClipUrl] = useState<string | null>(null);
+  const [sharedClipPostId, setSharedClipPostId] = useState<string | null>(null);
+  const [clipPostTitle, setClipPostTitle] = useState('');
+  const [clipPostComment, setClipPostComment] = useState('');
+  const [clipCommentPosted, setClipCommentPosted] = useState(false);
+  const [clipCommentPosting, setClipCommentPosting] = useState(false);
+  const [incomingSharedState, setIncomingSharedState] =
+    useState<SharedStatePostData | null>(null);
+  const [stateShareDraft, setStateShareDraft] =
+    useState<StateShareDraft | null>(null);
+  const [stateShareTitle, setStateShareTitle] = useState('');
+  const [stateShareComment, setStateShareComment] = useState('');
+  const [stateSharePreviewKind, setStateSharePreviewKind] =
+    useState<SharedStatePreviewKind>('image');
+  const [stateShareStatus, setStateShareStatus] =
+    useState<StateShareStatus>('idle');
+  const [stateShareResult, setStateShareResult] =
+    useState<SharedStateShareResult | null>(null);
+  const [stateShareCommentPosted, setStateShareCommentPosted] = useState(false);
   const isDesktopLayout = useIsDesktopLayout();
   const isMobileImmersiveCapable = useIsMobileImmersiveCapable();
   const usePhoneImmersiveLayout = isMobileImmersiveCapable && phoneViewRotated;
+
+  const stateSharePostDataBytes = stateShareDraft
+    ? getEstimatedSharedPostDataBytes(
+        stateShareDraft.postData,
+        stateSharePreviewKind
+      )
+    : 0;
+  const stateShareFits =
+    stateSharePostDataBytes > 0 &&
+    stateSharePostDataBytes <= MAX_SHARED_POST_DATA_BYTES;
+  const canUseClipForStatePreview = Boolean(
+    recordedClip &&
+      activeGameId &&
+      recordedClip.gameTitle ===
+        games.find((game) => game.id === activeGameId)?.title
+  );
 
   const selectedGame = useMemo(() => {
     return games.find((game) => game.id === selectedGameId) ?? null;
@@ -717,6 +887,139 @@ export const App = () => {
     return new MediaRecorder(stream, options);
   }, []);
 
+  const postPendingSharedStateToRunner = useCallback(() => {
+    const pending = pendingSharedStateRef.current;
+
+    if (!pending || !activeGameId || pending.gameId !== activeGameId) {
+      return;
+    }
+
+    runnerFrameRef.current?.contentWindow?.postMessage(
+      {
+        state: pending.bytes,
+        type: 'emuarcade:load-shared-state',
+      },
+      '*'
+    );
+  }, [activeGameId]);
+
+  const prepareStateShare = async (bytes: Uint8Array) => {
+    if (!activeGame?.romBlob) {
+      showToast('Start a local game before sharing a state');
+      return;
+    }
+
+    setStateShareStatus('compressing');
+
+    try {
+      const romFingerprint = await createRomFingerprint(
+        activeGame.romBlob,
+        activeGame.core
+      );
+      const encoded = encodeSharedState(bytes, {
+        core: activeGame.core,
+        gameTitle: activeGame.title,
+        romFingerprint,
+      });
+      const canvas = getRunnerCanvas();
+      const thumbnailDataUrl = canvas ? captureThumbnailDataUrl(canvas) : null;
+
+      setStateShareDraft({ ...encoded, thumbnailDataUrl });
+      setStateShareTitle(`${activeGame.title}: play from here`);
+      setStateShareComment('');
+      setStateSharePreviewKind(thumbnailDataUrl ? 'image' : 'hidden');
+      setStateShareResult(null);
+      setStateShareCommentPosted(false);
+      setStateShareStatus('idle');
+
+      if (!encoded.fits) {
+        showToast('This exact state is too large for Reddit post data');
+      }
+    } catch (error) {
+      console.error('Unable to prepare shared state', error);
+      setStateShareStatus('idle');
+      showToast('Could not prepare this save state');
+    }
+  };
+
+  const closeStateShare = () => {
+    if (
+      stateShareStatus === 'sharing' ||
+      stateShareStatus === 'commenting' ||
+      stateShareStatus === 'compressing'
+    ) {
+      return;
+    }
+
+    setStateShareDraft(null);
+    setStateShareResult(null);
+    setStateShareStatus('idle');
+  };
+
+  const sharePreparedState = async () => {
+    if (!stateShareDraft || !stateShareFits) {
+      return;
+    }
+
+    setStateShareStatus('sharing');
+
+    try {
+      let previewDataUrl: string | null = null;
+
+      if (stateSharePreviewKind === 'image') {
+        previewDataUrl = stateShareDraft.thumbnailDataUrl;
+      } else if (stateSharePreviewKind === 'gif') {
+        if (!recordedClip) {
+          throw new Error('Record a clip before using a GIF preview');
+        }
+
+        const gif = await encodeClipAsGif(recordedClip);
+
+        if (!gif || gif.size > CLIP_MAX_SHARE_BYTES) {
+          throw new Error('The GIF preview is too large to share');
+        }
+
+        previewDataUrl = await readBlobAsDataUrl(gif);
+      }
+
+      const result = await postStateShare({
+        postData: stateShareDraft.postData,
+        previewDataUrl,
+        previewKind: stateSharePreviewKind,
+        title: stateShareTitle,
+      });
+
+      setStateShareResult(result);
+      setStateShareStatus('shared');
+      showToast(`Shared checkpoint to r/${result.subredditName}`);
+    } catch (error) {
+      console.error('Unable to share state', error);
+      setStateShareStatus('idle');
+      showToast(error instanceof Error ? error.message : 'Could not share state');
+    }
+  };
+
+  const sharePreparedStateComment = async () => {
+    const text = stateShareComment.trim();
+
+    if (!stateShareResult || !text || stateShareCommentPosted) {
+      return;
+    }
+
+    setStateShareStatus('commenting');
+
+    try {
+      await postStateShareComment(stateShareResult.postId, text);
+      setStateShareCommentPosted(true);
+      setStateShareStatus('shared');
+      showToast('Comment posted');
+    } catch (error) {
+      console.error('Unable to share state comment', error);
+      setStateShareStatus('shared');
+      showToast('Checkpoint shared, but the comment failed');
+    }
+  };
+
   const stopRollingBuffer = useCallback(() => {
     if (rollingRecorderRef.current?.state === 'recording') {
       rollingRecorderRef.current.stop();
@@ -794,12 +1097,19 @@ export const App = () => {
       recordingMode,
     });
     setSharedClipUrl(null);
+    setSharedClipPostId(null);
+    setClipPostTitle(`${game.title} gameplay moment`);
+    setClipPostComment('');
+    setClipCommentPosted(false);
     setClipState('ready');
   };
 
   const discardClip = () => {
     setNextRecordedClip(null);
     setSharedClipUrl(null);
+    setSharedClipPostId(null);
+    setClipPostComment('');
+    setClipCommentPosted(false);
     setClipState('idle');
   };
 
@@ -1025,15 +1335,38 @@ export const App = () => {
         durationMs: recordedClip.durationMs,
         gameTitle: recordedClip.gameTitle,
         core: recordedClip.core,
+        postTitle: clipPostTitle,
       });
 
       setSharedClipUrl(result.postUrl ?? result.mediaUrl);
+      setSharedClipPostId(result.postId);
       setClipState('ready');
       showToast(`Shared GIF to r/${result.subredditName}`);
     } catch (error) {
       console.error(error);
       setClipState('ready');
       showToast('Could not create GIF');
+    }
+  };
+
+  const shareRecordedClipComment = async () => {
+    const text = clipPostComment.trim();
+
+    if (!sharedClipPostId || !text || clipCommentPosted) {
+      return;
+    }
+
+    setClipCommentPosting(true);
+
+    try {
+      await postStateShareComment(sharedClipPostId, text);
+      setClipCommentPosted(true);
+      showToast('Comment posted');
+    } catch (error) {
+      console.error('Unable to share clip comment', error);
+      showToast('Clip shared, but the comment failed');
+    } finally {
+      setClipCommentPosting(false);
     }
   };
 
@@ -1083,12 +1416,35 @@ export const App = () => {
         return;
       }
 
-      if (!isMobileImmersiveCapable) {
+      if (event.data.action === 'share-state') {
+        void prepareStateShare(event.data.state);
+        return;
+      }
+
+      if (event.data.action === 'runner-ready') {
+        postClipStateToRunner();
+        postPendingSharedStateToRunner();
+        return;
+      }
+
+      if (event.data.action === 'shared-state-loaded') {
+        pendingSharedStateRef.current = null;
+        setIncomingSharedState(null);
+        showToast('Shared checkpoint loaded');
+        return;
+      }
+
+      if (
+        event.data.action === 'rotate' &&
+        !isMobileImmersiveCapable
+      ) {
         showToast('Rotate view is only available on mobile');
         return;
       }
 
-      togglePhoneRotatedView();
+      if (event.data.action === 'rotate') {
+        togglePhoneRotatedView();
+      }
     };
 
     window.addEventListener('message', handleRunnerAction);
@@ -1351,6 +1707,19 @@ export const App = () => {
     }
   };
 
+  const activateGame = useCallback((game: StoredGame) => {
+    stopRunnerFrame();
+    setSelectedGameId(game.id);
+    setActiveGameId(game.id);
+    setRunnerKey((current) => current + 1);
+    setActivePanel('play');
+    recordGameLaunch({
+      core: game.core,
+      gameId: game.id,
+      title: game.title,
+    });
+  }, [stopRunnerFrame]);
+
   const addFileGame = async () => {
     if (!romFile) {
       showToast('Choose a ROM file first');
@@ -1386,6 +1755,29 @@ export const App = () => {
 
       await refreshLibrary(game.id);
       clearImport();
+      const pending = pendingSharedStateRef.current;
+
+      if (pending && pending.gameId === null && game.romBlob) {
+        const fingerprint = await createRomFingerprint(
+          game.romBlob,
+          game.core
+        );
+
+        if (
+          game.core === pending.postData.c &&
+          fingerprint === pending.postData.r
+        ) {
+          pendingSharedStateRef.current = { ...pending, gameId: game.id };
+          activateGame(game);
+          showToast('Matching ROM found. Loading shared checkpoint...');
+          return;
+        }
+
+        setActivePanel('library');
+        showToast('ROM added, but it does not match this checkpoint');
+        return;
+      }
+
       setActivePanel('library');
       showToast(
         existingGame ? `Reconnected ${game.title}` : `Added ${game.title}`
@@ -1406,16 +1798,7 @@ export const App = () => {
       return;
     }
 
-    stopRunnerFrame();
-    setSelectedGameId(game.id);
-    setActiveGameId(game.id);
-    setRunnerKey((current) => current + 1);
-    setActivePanel('play');
-    recordGameLaunch({
-      core: game.core,
-      gameId: game.id,
-      title: game.title,
-    });
+    activateGame(game);
 
     try {
       await trpc.recordLaunch.mutate({
@@ -1426,6 +1809,56 @@ export const App = () => {
       console.error('Unable to record launch', error);
     }
   };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const openSharedCheckpoint = async () => {
+      const postData = await loadSharedPostData();
+
+      if (!postData || cancelled) {
+        return;
+      }
+
+      try {
+        const bytes = decodeSharedState(postData);
+        const library = await listGames();
+        const matchingGame = await findMatchingLocalGame(library, postData);
+
+        if (cancelled) {
+          return;
+        }
+
+        setIncomingSharedState(postData);
+        setGames(library);
+        pendingSharedStateRef.current = {
+          bytes,
+          gameId: matchingGame?.id ?? null,
+          postData,
+        };
+
+        if (matchingGame) {
+          activateGame(matchingGame);
+          showToast('Matching ROM found. Loading shared checkpoint...');
+          return;
+        }
+
+        setSelectedCore(postData.c);
+        setTitle(postData.g);
+        setActivePanel('import');
+        showToast('Import your matching ROM to play this checkpoint');
+      } catch (error) {
+        console.error('Unable to open shared checkpoint', error);
+        showToast('This shared checkpoint is invalid');
+      }
+    };
+
+    void openSharedCheckpoint();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activateGame]);
 
   const updateSelectedSettings = async (
     settings: Partial<EmulatorSettings>
@@ -1496,6 +1929,18 @@ export const App = () => {
       </div>
 
       <div className="grid gap-3">
+        {incomingSharedState && !activeGameId ? (
+          <div className="rounded-md border border-[#60a5fa] bg-[#101c2a] p-3 text-sm">
+            <div className="font-semibold text-white">
+              Play shared checkpoint
+            </div>
+            <p className="mt-1 text-xs leading-5 text-[#c8d8eb]">
+              Choose your own matching {incomingSharedState.g} ROM. EmuArcade
+              compares an on-device fingerprint; the ROM is never included in
+              the post or uploaded.
+            </p>
+          </div>
+        ) : null}
         <label className="grid gap-1 text-xs text-[#c9c1ad]">
           System
           <select
@@ -1870,7 +2315,10 @@ export const App = () => {
               src={runnerSrc}
               title="EmuArcade Emulator"
               allow="gamepad; fullscreen"
-              onLoad={postClipStateToRunner}
+              onLoad={() => {
+                postClipStateToRunner();
+                postPendingSharedStateToRunner();
+              }}
             />
           ) : (
             <div className="absolute inset-0 grid place-items-center bg-[#050607] p-4">
@@ -1911,8 +2359,181 @@ export const App = () => {
               </div>
             </div>
           )}
+          {stateShareDraft ? (
+            <div className="absolute inset-0 z-20 grid place-items-center overflow-y-auto bg-black/70 p-3">
+              <div
+                aria-label="Share checkpoint"
+                aria-modal="true"
+                className="w-[min(520px,100%)] rounded-md border border-[#3a3f3b] bg-[#111315] p-4 shadow-2xl"
+                role="dialog"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 text-base font-semibold">
+                      <Save className="h-5 w-5 text-[#34d399]" />
+                      Share exact checkpoint
+                    </div>
+                    <p className="mt-1 text-xs text-[#a8afa6]">
+                      The matching ROM stays on each player's device.
+                    </p>
+                  </div>
+                  <button
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#3a3f3b] bg-[#1d201f]"
+                    onClick={closeStateShare}
+                    title="Close"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="rounded-md border border-[#2f332f] bg-[#17191a] p-2">
+                    <div className="text-[#8e958a]">Raw</div>
+                    <strong>{formatBytes(stateShareDraft.rawBytes)}</strong>
+                  </div>
+                  <div className="rounded-md border border-[#2f332f] bg-[#17191a] p-2">
+                    <div className="text-[#8e958a]">Compressed</div>
+                    <strong>
+                      {formatBytes(stateShareDraft.compressedBytes)}
+                    </strong>
+                  </div>
+                  <div className="rounded-md border border-[#2f332f] bg-[#17191a] p-2">
+                    <div className="text-[#8e958a]">Post data</div>
+                    <strong
+                      className={
+                        stateShareFits ? 'text-[#34d399]' : 'text-[#ff8066]'
+                      }
+                    >
+                      {stateSharePostDataBytes}/{MAX_SHARED_POST_DATA_BYTES} B
+                    </strong>
+                  </div>
+                </div>
+
+                <label className="mt-3 grid gap-1 text-xs text-[#c9c1ad]">
+                  Post title
+                  <input
+                    className="h-10 rounded-md border border-[#3a3f3b] bg-[#0d0e10] px-3 text-sm text-white outline-none focus:border-[#34d399]"
+                    maxLength={120}
+                    onChange={(event) =>
+                      setStateShareTitle(event.currentTarget.value)
+                    }
+                    value={stateShareTitle}
+                  />
+                </label>
+
+                <div className="mt-3">
+                  <div className="text-xs text-[#c9c1ad]">Post preview</div>
+                  <div className="mt-1 grid grid-cols-3 gap-2">
+                    <button
+                      className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md border px-2 text-xs ${
+                        stateSharePreviewKind === 'image'
+                          ? 'border-[#34d399] bg-[#13251f] text-white'
+                          : 'border-[#3a3f3b] bg-[#1d201f] text-[#c9c1ad]'
+                      }`}
+                      disabled={!stateShareDraft.thumbnailDataUrl}
+                      onClick={() => setStateSharePreviewKind('image')}
+                    >
+                      <ImageIcon className="h-4 w-4" />
+                      Snapshot
+                    </button>
+                    <button
+                      className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md border px-2 text-xs ${
+                        stateSharePreviewKind === 'gif'
+                          ? 'border-[#ff4500] bg-[#3a2118] text-white'
+                          : 'border-[#3a3f3b] bg-[#1d201f] text-[#c9c1ad]'
+                      }`}
+                      disabled={!canUseClipForStatePreview}
+                      onClick={() => setStateSharePreviewKind('gif')}
+                    >
+                      <MonitorPlay className="h-4 w-4" />
+                      Latest GIF
+                    </button>
+                    <button
+                      className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md border px-2 text-xs ${
+                        stateSharePreviewKind === 'hidden'
+                          ? 'border-[#60a5fa] bg-[#101c2a] text-white'
+                          : 'border-[#3a3f3b] bg-[#1d201f] text-[#c9c1ad]'
+                      }`}
+                      onClick={() => setStateSharePreviewKind('hidden')}
+                    >
+                      <LockKeyhole className="h-4 w-4" />
+                      Hidden
+                    </button>
+                  </div>
+                </div>
+
+                <label className="mt-3 grid gap-1 text-xs text-[#c9c1ad]">
+                  Optional comment
+                  <textarea
+                    className="min-h-20 resize-y rounded-md border border-[#3a3f3b] bg-[#0d0e10] p-3 text-sm text-white outline-none focus:border-[#60a5fa]"
+                    maxLength={10_000}
+                    onChange={(event) =>
+                      setStateShareComment(event.currentTarget.value)
+                    }
+                    placeholder="Add context beneath the post"
+                    value={stateShareComment}
+                  />
+                </label>
+
+                {!stateShareFits ? (
+                  <p className="mt-3 rounded-md border border-[#7f3124] bg-[#2b1511] p-2 text-xs leading-5 text-[#ffb5a4]">
+                    This core's exact state does not compress below the safe
+                    post-data limit. It has not been truncated or altered.
+                  </p>
+                ) : null}
+
+                {stateShareResult ? (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#ff4500] px-3 text-sm font-semibold text-white"
+                      onClick={() => navigateTo(stateShareResult.postUrl)}
+                    >
+                      <Play className="h-4 w-4" />
+                      View post
+                    </button>
+                    {stateShareComment.trim() && !stateShareCommentPosted ? (
+                      <button
+                        className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[#60a5fa] bg-[#101c2a] px-3 text-sm"
+                        disabled={stateShareStatus === 'commenting'}
+                        onClick={() => void sharePreparedStateComment()}
+                      >
+                        <MessageCircle className="h-4 w-4" />
+                        {stateShareStatus === 'commenting'
+                          ? 'Posting'
+                          : 'Post comment'}
+                      </button>
+                    ) : (
+                      <button
+                        className="h-10 rounded-md border border-[#3a3f3b] bg-[#1d201f] px-3 text-sm"
+                        onClick={closeStateShare}
+                      >
+                        Done
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-[#ff4500] px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-[#5b392e]"
+                    disabled={
+                      !stateShareFits ||
+                      !stateShareTitle.trim() ||
+                      stateShareStatus === 'sharing'
+                    }
+                    onClick={() => void sharePreparedState()}
+                  >
+                    <Share2 className="h-4 w-4" />
+                    {stateShareStatus === 'sharing'
+                      ? stateSharePreviewKind === 'gif'
+                        ? 'Encoding and sharing'
+                        : 'Sharing'
+                      : 'Create checkpoint post'}
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : null}
           {recordedClip ? (
-            <div className="absolute right-3 bottom-3 z-10 w-[min(380px,calc(100%-24px))] rounded-md border border-[#3a3f3b] bg-[#111315]/95 p-3 shadow-2xl backdrop-blur">
+            <div className="absolute right-3 bottom-3 z-10 max-h-[calc(100%-24px)] w-[min(380px,calc(100%-24px))] overflow-y-auto rounded-md border border-[#3a3f3b] bg-[#111315]/95 p-3 shadow-2xl backdrop-blur">
               <div className="flex min-w-0 items-center justify-between gap-2">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold">
@@ -1941,12 +2562,41 @@ export const App = () => {
                 muted
                 playsInline
               />
+              <details className="mt-2 rounded-md border border-[#2f332f] bg-[#17191a] p-2">
+                <summary className="cursor-pointer text-xs font-semibold text-[#c9c1ad]">
+                  Post details
+                </summary>
+                <label className="mt-2 grid gap-1 text-xs text-[#a8afa6]">
+                  Title
+                  <input
+                    className="h-9 rounded-md border border-[#3a3f3b] bg-[#0d0e10] px-2 text-sm text-white outline-none focus:border-[#34d399]"
+                    maxLength={120}
+                    onChange={(event) =>
+                      setClipPostTitle(event.currentTarget.value)
+                    }
+                    value={clipPostTitle}
+                  />
+                </label>
+                <label className="mt-2 grid gap-1 text-xs text-[#a8afa6]">
+                  Optional comment
+                  <textarea
+                    className="min-h-16 resize-y rounded-md border border-[#3a3f3b] bg-[#0d0e10] p-2 text-sm text-white outline-none focus:border-[#60a5fa]"
+                    maxLength={10_000}
+                    onChange={(event) =>
+                      setClipPostComment(event.currentTarget.value)
+                    }
+                    value={clipPostComment}
+                  />
+                </label>
+              </details>
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <button
                   className="inline-flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-md bg-[#ff4500] px-2 text-xs font-semibold text-white transition hover:bg-[#e63d00] disabled:cursor-not-allowed disabled:bg-[#5b392e] sm:gap-2 sm:px-3 sm:text-sm"
                   onClick={() => void shareRecordedGif()}
                   disabled={
-                    clipState === 'sharing' || clipState === 'encoding-gif'
+                    !clipPostTitle.trim() ||
+                    clipState === 'sharing' ||
+                    clipState === 'encoding-gif'
                   }
                 >
                   <Share2 className="h-4 w-4" />
@@ -1964,6 +2614,18 @@ export const App = () => {
                   Download
                 </button>
               </div>
+              {sharedClipPostId &&
+              clipPostComment.trim() &&
+              !clipCommentPosted ? (
+                <button
+                  className="mt-2 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-[#60a5fa] bg-[#101c2a] px-3 text-sm disabled:opacity-60"
+                  disabled={clipCommentPosting}
+                  onClick={() => void shareRecordedClipComment()}
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  {clipCommentPosting ? 'Posting' : 'Post comment'}
+                </button>
+              ) : null}
               {sharedClipUrl ? (
                 <div className="mt-2 truncate text-xs text-[#8e958a]">
                   Shared: {sharedClipUrl}

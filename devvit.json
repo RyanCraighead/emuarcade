@@ -3,7 +3,10 @@
   "name": "emuarcade",
   "permissions": {
     "media": true,
-    "redis": true
+    "redis": true,
+    "reddit": {
+      "asUser": ["SUBMIT_POST", "SUBMIT_COMMENT"]
+    }
   },
   "post": {
     "dir": "dist/client",
@@ -15,6 +18,11 @@
       },
       "game": {
         "entry": "game.html"
+      },
+      "shared": {
+        "inline": true,
+        "height": "regular",
+        "entry": "shared.html"
       }
     }
   },

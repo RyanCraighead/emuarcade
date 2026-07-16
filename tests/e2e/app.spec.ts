@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { encodeSharedState } from '../../src/shared/sharedState';
 
 const artworkByProject: Record<string, string> = {
   desktop: 'splash-console-wide.webp',
@@ -28,12 +29,17 @@ test.describe('responsive app flow', () => {
     await expect(page.locator('.console-splash-device')).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
-    const currentArtwork = await page
-      .locator('.console-splash-art img')
-      .evaluate((image) =>
-        image instanceof HTMLImageElement ? image.currentSrc : ''
-      );
-    expect(currentArtwork).toContain(artworkByProject[testInfo.project.name]);
+    const artwork = page.locator('.console-splash-art img');
+
+    await expect
+      .poll(async () => {
+        return await artwork.evaluate((image) =>
+          image instanceof HTMLImageElement && image.complete
+            ? image.currentSrc
+            : ''
+        );
+      })
+      .toContain(artworkByProject[testInfo.project.name]);
 
     await launchButton.click();
     await expect(page).toHaveURL(/\/game\.html$/);
@@ -119,4 +125,45 @@ test('local GIF sharing stores and serves an exact media payload', async ({
   expect(mediaResponse.ok()).toBe(true);
   expect(mediaResponse.headers()['content-type']).toContain('image/gif');
   expect((await mediaResponse.body()).byteLength).toBeGreaterThan(0);
+});
+
+test('local checkpoint sharing renders a playable custom-post preview', async ({
+  page,
+  request,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop');
+
+  const encoded = encodeSharedState(new Uint8Array(32_000), {
+    core: 'nes',
+    gameTitle: 'Checkpoint Browser Test',
+    romFingerprint: 'browser123456789',
+  });
+  const response = await request.post('/api/share-state', {
+    data: {
+      postData: encoded.postData,
+      previewDataUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAUEBA==',
+      previewKind: 'gif',
+      title: 'Play from this test checkpoint',
+    },
+  });
+
+  expect(response.ok()).toBe(true);
+  const result = await response.json();
+  expect(result.postDataBytes).toBeLessThanOrEqual(1_800);
+
+  await page.goto(result.postUrl);
+  await expect(
+    page.getByRole('button', {
+      name: 'Play Checkpoint Browser Test from this checkpoint',
+    })
+  ).toBeVisible();
+  await expect(
+    page.getByRole('img', {
+      name: 'Checkpoint Browser Test checkpoint preview',
+    })
+  ).toBeVisible();
+
+  await page.getByRole('button', { name: /Play Checkpoint Browser Test/ }).click();
+  await expect(page).toHaveURL(/game\.html\?localShare=/);
+  await expect(page.getByText('Play shared checkpoint')).toBeVisible();
 });

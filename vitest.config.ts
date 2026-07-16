@@ -14,10 +14,13 @@ export default defineConfig({
       include: [
         'src/shared/emulator.ts',
         'src/shared/trpc.ts',
+        'src/shared/sharedState.ts',
         'src/client/gameLibrary.ts',
         'src/client/playStats.ts',
+        'src/client/romIdentity.ts',
         'src/client/romMetadata.ts',
         'src/server/clips.ts',
+        'src/server/shares.ts',
         'src/server/core/post.ts',
         'src/server/routes/menu.ts',
         'src/server/routes/triggers.ts',

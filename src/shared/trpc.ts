@@ -64,6 +64,7 @@ export const clipShareInputSchema = z.object({
   durationMs: z.number().int().positive().max(60_000),
   gameTitle: z.string().min(1).max(120),
   core: emulatorCoreSchema,
+  postTitle: z.string().trim().min(1).max(120).optional(),
 }).refine(
   (input) =>
     input.shareFormat === 'gif'

@@ -36,6 +36,7 @@
     "@trpc/client": "^11.17.0",
     "@trpc/server": "^11.17.0",
     "devvit": "0.13.3",
+    "fflate": "^0.8.3",
     "gifenc": "^1.0.3",
     "hono": "4.12.21",
     "lucide-react": "^1.17.0",

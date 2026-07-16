@@ -1,5 +1,9 @@
 const localToastHostId = 'emuarcade-local-toast-host';
 
+export const context = {
+  postData: undefined,
+};
+
 const ensureToastHost = () => {
   const existingHost = document.getElementById(localToastHostId);
 
@@ -49,7 +53,13 @@ export const navigateTo = (url: string) => {
 };
 
 export const requestExpandedMode = (_event: Event, entrypoint = 'game') => {
-  const target = entrypoint === 'game' ? '/game.html' : '/splash.html';
+  const route = entrypoint === 'game' ? '/game.html' : '/splash.html';
+  const localShare = new URLSearchParams(window.location.search).get(
+    'localShare'
+  );
+  const target = localShare
+    ? `${route}?localShare=${encodeURIComponent(localShare)}`
+    : route;
 
   if (
     window.parent !== window &&

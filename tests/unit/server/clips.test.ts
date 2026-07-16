@@ -103,6 +103,7 @@ describe('Reddit clip sharing', () => {
     expect(serverMocks.submitPost).toHaveBeenCalledWith({
       imageUrls: ['https://media.reddit.test/uploaded'],
       kind: 'image',
+      runAs: 'USER',
       subredditName: 'emuarcade',
       title: 'EmuArcade GIF: Super Test 64',
     });
@@ -200,5 +201,19 @@ describe('Reddit clip sharing', () => {
 
     expect(submitted?.title).toHaveLength(120);
     expect(submitted?.title).not.toContain('  ');
+  });
+
+  it('uses a player-supplied post title and submits as that user', async () => {
+    await shareClip({
+      ...gifInput(),
+      postTitle: '  My   best   run  ',
+    });
+
+    expect(serverMocks.submitPost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runAs: 'USER',
+        title: 'My best run',
+      })
+    );
   });
 });
