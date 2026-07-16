@@ -7,7 +7,6 @@ import {
   Copy,
   Database,
   Download,
-  FileImage,
   FolderOpen,
   Gamepad2,
   Library,
@@ -998,45 +997,6 @@ export const App = () => {
     );
   }, [clipRecordingMode, clipState, rollingBufferActive]);
 
-  const shareRecordedClip = async () => {
-    if (!recordedClip) {
-      return;
-    }
-
-    if (recordedClip.sizeBytes > CLIP_MAX_SHARE_BYTES) {
-      showToast('Clip is too large to share; Download still works');
-      return;
-    }
-
-    setClipState('sharing');
-
-    try {
-      const dataUrl = await readBlobAsDataUrl(recordedClip.blob);
-      const result = await postClipShare({
-        dataUrl,
-        thumbnailDataUrl: recordedClip.thumbnailDataUrl,
-        mimeType: recordedClip.mimeType,
-        shareFormat: 'video',
-        sizeBytes: recordedClip.sizeBytes,
-        durationMs: recordedClip.durationMs,
-        gameTitle: recordedClip.gameTitle,
-        core: recordedClip.core,
-      });
-
-      setSharedClipUrl(result.postUrl ?? result.mediaUrl);
-      setClipState('ready');
-      showToast(
-        result.shareKind === 'video'
-          ? `Shared clip to r/${result.subredditName}`
-          : `Shared preview to r/${result.subredditName}`
-      );
-    } catch (error) {
-      console.error(error);
-      setClipState('ready');
-      showToast('Could not share this clip');
-    }
-  };
-
   const shareRecordedGif = async () => {
     if (!recordedClip) {
       return;
@@ -1981,26 +1941,20 @@ export const App = () => {
                 muted
                 playsInline
               />
-              <div className="mt-2 grid grid-cols-3 gap-2">
+              <div className="mt-2 grid grid-cols-2 gap-2">
                 <button
                   className="inline-flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-md bg-[#ff4500] px-2 text-xs font-semibold text-white transition hover:bg-[#e63d00] disabled:cursor-not-allowed disabled:bg-[#5b392e] sm:gap-2 sm:px-3 sm:text-sm"
-                  onClick={() => void shareRecordedClip()}
-                  disabled={
-                    clipState === 'sharing' || clipState === 'encoding-gif'
-                  }
-                >
-                  <Share2 className="h-4 w-4" />
-                  {clipState === 'sharing' ? 'Sharing' : 'Video'}
-                </button>
-                <button
-                  className="inline-flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-md border border-[#3a3f3b] bg-[#1d201f] px-2 text-xs transition hover:border-[#34d399] disabled:cursor-not-allowed disabled:opacity-50 sm:gap-2 sm:px-3 sm:text-sm"
                   onClick={() => void shareRecordedGif()}
                   disabled={
                     clipState === 'sharing' || clipState === 'encoding-gif'
                   }
                 >
-                  <FileImage className="h-4 w-4" />
-                  {clipState === 'encoding-gif' ? 'Encoding' : 'GIF'}
+                  <Share2 className="h-4 w-4" />
+                  {clipState === 'encoding-gif'
+                    ? 'Encoding'
+                    : clipState === 'sharing'
+                      ? 'Sharing'
+                      : 'Share GIF'}
                 </button>
                 <button
                   className="inline-flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-md border border-[#3a3f3b] bg-[#1d201f] px-2 text-xs transition hover:border-[#60a5fa] sm:gap-2 sm:px-3 sm:text-sm"

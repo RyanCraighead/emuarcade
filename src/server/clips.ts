@@ -122,39 +122,40 @@ const shareGifClip = async (
 ): Promise<ClipShareResult> => {
   const uploaded = await media.upload({
     url: input.dataUrl,
-    type: 'image',
+    type: 'gif',
   });
   const postTitle = sanitizePostTitle(`EmuArcade GIF: ${input.gameTitle}`);
-  const richtext = new RichTextBuilder()
-    .paragraph((paragraph) => {
-      paragraph.text({
-        text: `Captured in EmuArcade from ${input.gameTitle} (${formatClipSeconds(
-          input.durationMs
-        )}).`,
-      });
-    })
-    .image({
-      mediaUrl: uploaded.mediaUrl,
-      caption: `EmuArcade gameplay GIF from ${input.gameTitle}`,
-    })
-    .paragraph((paragraph) => {
-      paragraph.text({
-        text: 'Converted locally to GIF and shared after the player chose to post it.',
-      });
+  try {
+    const post = await reddit.submitPost({
+      imageUrls: [uploaded.mediaUrl],
+      kind: 'image',
+      subredditName,
+      title: postTitle,
     });
-  const post = await reddit.submitPost({
-    subredditName,
-    title: postTitle,
-    richtext,
-  });
 
-  return {
-    mediaUrl: uploaded.mediaUrl,
-    postId: post.id,
-    postUrl: getPostUrl(post.permalink),
-    subredditName,
-    shareKind: 'gif',
-  };
+    return {
+      mediaUrl: uploaded.mediaUrl,
+      postId: post.id,
+      postUrl: getPostUrl(post.permalink),
+      subredditName,
+      shareKind: 'gif',
+    };
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes('is being created asynchronously')
+    ) {
+      return {
+        mediaUrl: uploaded.mediaUrl,
+        postId: null,
+        postUrl: null,
+        subredditName,
+        shareKind: 'gif',
+      };
+    }
+
+    throw error;
+  }
 };
 
 export const shareClip = async (
