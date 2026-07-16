@@ -1129,6 +1129,21 @@
     }
   };
 
+  const pauseForClipReview = () => {
+    const emulator = getEmulator();
+
+    if (
+      emulator &&
+      emulator.started &&
+      !emulator.paused &&
+      typeof emulator.pause === 'function'
+    ) {
+      emulator.pause(true);
+    }
+  };
+
+  window.emuarcadePause = pauseForClipReview;
+
   const resumeEmulator = () => {
     const emulator = getEmulator();
 

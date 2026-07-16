@@ -92,6 +92,7 @@ import { trpc } from './trpc';
 declare global {
   interface Window {
     emuarcadeCaptureStream?: (fps: number) => MediaStream | null;
+    emuarcadePause?: () => void;
     emuarcadeRoot?: Root;
     emuarcadeStop?: () => void;
   }
@@ -851,6 +852,10 @@ export const App = () => {
     runnerFrameRef.current?.contentWindow?.emuarcadeStop?.();
   }, []);
 
+  const pauseRunnerFrame = useCallback(() => {
+    runnerFrameRef.current?.contentWindow?.emuarcadePause?.();
+  }, []);
+
   const setRunnerFrame = useCallback((frame: HTMLIFrameElement | null) => {
     if (runnerFrameRef.current && runnerFrameRef.current !== frame) {
       runnerFrameRef.current.contentWindow?.emuarcadeStop?.();
@@ -1085,6 +1090,8 @@ export const App = () => {
     }
 
     const clipUrl = URL.createObjectURL(blob);
+
+    pauseRunnerFrame();
 
     setNextRecordedClip({
       url: clipUrl,

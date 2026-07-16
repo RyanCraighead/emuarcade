@@ -80,6 +80,7 @@ describe('bundled application assets', () => {
     expect(runner).toContain(
       'window.emuarcadeCaptureStream = getCaptureStream'
     );
+    expect(runner).toContain('window.emuarcadePause = pauseForClipReview');
     expect(runner).toContain('window.parent.postMessage(');
     expect(runner).toContain("displayName: 'Share State'");
     expect(runner).toContain("data.type === 'emuarcade:load-shared-state'");
