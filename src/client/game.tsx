@@ -45,6 +45,7 @@ import {
   EMULATOR_SYSTEMS,
   N64_CORE_OPTIONS,
   VIDEO_FILTERS,
+  getDefaultClipPostTitle,
   getSystemByCore,
   inferCoreFromFileName,
   isEmulatorCore,
@@ -1098,7 +1099,7 @@ export const App = () => {
     });
     setSharedClipUrl(null);
     setSharedClipPostId(null);
-    setClipPostTitle(`${game.title} gameplay moment`);
+    setClipPostTitle('');
     setClipPostComment('');
     setClipCommentPosted(false);
     setClipState('ready');
@@ -1335,7 +1336,7 @@ export const App = () => {
         durationMs: recordedClip.durationMs,
         gameTitle: recordedClip.gameTitle,
         core: recordedClip.core,
-        postTitle: clipPostTitle,
+        postTitle: clipPostTitle.trim() || undefined,
       });
 
       setSharedClipUrl(result.postUrl ?? result.mediaUrl);
@@ -2567,13 +2568,16 @@ export const App = () => {
                   Post details
                 </summary>
                 <label className="mt-2 grid gap-1 text-xs text-[#a8afa6]">
-                  Title
+                  Post title (optional)
                   <input
                     className="h-9 rounded-md border border-[#3a3f3b] bg-[#0d0e10] px-2 text-sm text-white outline-none focus:border-[#34d399]"
                     maxLength={120}
                     onChange={(event) =>
                       setClipPostTitle(event.currentTarget.value)
                     }
+                    placeholder={getDefaultClipPostTitle(
+                      recordedClip.gameTitle
+                    )}
                     value={clipPostTitle}
                   />
                 </label>
@@ -2594,7 +2598,6 @@ export const App = () => {
                   className="inline-flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-md bg-[#ff4500] px-2 text-xs font-semibold text-white transition hover:bg-[#e63d00] disabled:cursor-not-allowed disabled:bg-[#5b392e] sm:gap-2 sm:px-3 sm:text-sm"
                   onClick={() => void shareRecordedGif()}
                   disabled={
-                    !clipPostTitle.trim() ||
                     clipState === 'sharing' ||
                     clipState === 'encoding-gif'
                   }

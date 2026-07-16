@@ -57,7 +57,7 @@ const gifInput = (): ClipShareInput => ({
   core: 'n64',
   dataUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAUEBA==',
   durationMs: 3_400,
-  gameTitle: 'Super Test 64',
+  gameTitle: 'Super Test 64 (USA) [!]',
   mimeType: 'image/gif',
   shareFormat: 'gif',
   sizeBytes: 512,
@@ -105,7 +105,7 @@ describe('Reddit clip sharing', () => {
       kind: 'image',
       runAs: 'USER',
       subredditName: 'emuarcade',
-      title: 'EmuArcade GIF: Super Test 64',
+      title: 'Super Test 64',
     });
   });
 
@@ -145,7 +145,7 @@ describe('Reddit clip sharing', () => {
     expect(serverMocks.submitPost).toHaveBeenCalledWith(
       expect.objectContaining({
         subredditName: 'emuarcade',
-        title: 'EmuArcade clip: Super Test 64',
+        title: 'Super Test 64',
       })
     );
   });
@@ -199,7 +199,7 @@ describe('Reddit clip sharing', () => {
     });
     const submitted = serverMocks.submitPost.mock.calls[0]?.[0];
 
-    expect(submitted?.title).toHaveLength(120);
+    expect(submitted?.title.length).toBeLessThanOrEqual(120);
     expect(submitted?.title).not.toContain('  ');
   });
 

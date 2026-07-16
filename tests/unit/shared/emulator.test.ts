@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SETTINGS,
   EMULATOR_SYSTEMS,
+  getDefaultClipPostTitle,
   getSystemByCore,
   inferCoreFromFileName,
   isEmulatorCore,
@@ -73,5 +74,17 @@ describe('emulator catalog', () => {
       virtualGamepad: true,
       startOnLoad: true,
     });
+  });
+
+  it('builds clean default clip post titles from ROM names', () => {
+    expect(getDefaultClipPostTitle('Super Mario 64 (USA) [!]')).toBe(
+      'Super Mario 64'
+    );
+    expect(getDefaultClipPostTitle('Metroid Fusion [Rev 1]')).toBe(
+      'Metroid Fusion'
+    );
+    expect(getDefaultClipPostTitle('  Chrono   Trigger  ')).toBe(
+      'Chrono Trigger'
+    );
   });
 });

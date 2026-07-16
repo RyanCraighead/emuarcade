@@ -4,12 +4,19 @@ import {
   reddit,
   RichTextBuilder,
 } from '@devvit/web/server';
+import { getDefaultClipPostTitle } from '../shared/emulator';
 import type { ClipShareInput, ClipShareResult } from '../shared/emulator';
 
 const MAX_CLIP_BYTES = 20 * 1024 * 1024;
 
 const sanitizePostTitle = (title: string) => {
   return title.replace(/\s+/g, ' ').trim().slice(0, 120);
+};
+
+const resolvePostTitle = (input: ClipShareInput) => {
+  return sanitizePostTitle(
+    input.postTitle?.trim() || getDefaultClipPostTitle(input.gameTitle)
+  );
 };
 
 const formatClipSeconds = (durationMs: number) => {
@@ -36,9 +43,7 @@ const shareVideoClip = async (
     url: input.dataUrl,
     type: 'video',
   });
-  const postTitle = sanitizePostTitle(
-    input.postTitle ?? `EmuArcade clip: ${input.gameTitle}`
-  );
+  const postTitle = resolvePostTitle(input);
   const richtext = new RichTextBuilder()
     .paragraph((paragraph) => {
       paragraph.text({
@@ -84,9 +89,7 @@ const sharePreviewImage = async (
     url: input.thumbnailDataUrl,
     type: 'image',
   });
-  const postTitle = sanitizePostTitle(
-    input.postTitle ?? `EmuArcade moment: ${input.gameTitle}`
-  );
+  const postTitle = resolvePostTitle(input);
   const richtext = new RichTextBuilder()
     .paragraph((paragraph) => {
       paragraph.text({
@@ -128,9 +131,7 @@ const shareGifClip = async (
     url: input.dataUrl,
     type: 'gif',
   });
-  const postTitle = sanitizePostTitle(
-    input.postTitle ?? `EmuArcade GIF: ${input.gameTitle}`
-  );
+  const postTitle = resolvePostTitle(input);
   try {
     const post = await reddit.submitPost({
       imageUrls: [uploaded.mediaUrl],

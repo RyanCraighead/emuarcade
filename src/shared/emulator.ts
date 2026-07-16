@@ -94,6 +94,16 @@ export type ClipShareResult = {
   shareKind: 'video' | 'gif' | 'image';
 };
 
+export const getDefaultClipPostTitle = (gameTitle: string) => {
+  const normalizedTitle = gameTitle.replace(/\s+/g, ' ').trim();
+  const suffixIndex = normalizedTitle.search(/[([]/);
+  const title = (
+    suffixIndex >= 0 ? normalizedTitle.slice(0, suffixIndex) : normalizedTitle
+  ).trim();
+
+  return (title || 'EmuArcade clip').slice(0, 120);
+};
+
 export const EMULATORJS_DATA_PATH = '/emulatorjs/data/';
 
 export const DEFAULT_SETTINGS: EmulatorSettings = {
