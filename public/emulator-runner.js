@@ -24,6 +24,10 @@
   let sessionSettings = defaultSettings;
   let pausedForLifecycle = false;
   let pausedForOwnership = false;
+  let pausedForSharedState = false;
+  let sharedStateLoadFailures = 0;
+  let sharedStateLoadInProgress = false;
+  let sharedStateLoadRetryTimer = null;
   let stopped = false;
   let runnerChannel = null;
   const clipIcon =
@@ -80,6 +84,83 @@
   };
 
   window.emuarcadeCaptureStream = getCaptureStream;
+
+  const waitForPresentedVideoFrame = (video) => {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (ready) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        window.clearTimeout(timeoutId);
+        video.removeEventListener('loadeddata', handleLoadedData);
+        resolve(ready);
+      };
+      const handleLoadedData = () => {
+        window.requestAnimationFrame(() => finish(true));
+      };
+      const timeoutId = window.setTimeout(() => finish(false), 1500);
+
+      if (typeof video.requestVideoFrameCallback === 'function') {
+        video.requestVideoFrameCallback(() => finish(true));
+      } else if (video.readyState >= 2) {
+        window.requestAnimationFrame(() => finish(true));
+      } else {
+        video.addEventListener('loadeddata', handleLoadedData, { once: true });
+      }
+    });
+  };
+
+  const capturePresentedFrame = async () => {
+    const canvas = document.querySelector('canvas');
+    const stream = getCaptureStream(30);
+
+    if (!canvas || !stream || stream.getVideoTracks().length === 0) {
+      stream?.getTracks().forEach((track) => track.stop());
+      return null;
+    }
+
+    const video = document.createElement('video');
+    video.autoplay = true;
+    video.muted = true;
+    video.playsInline = true;
+    video.srcObject = stream;
+
+    try {
+      await video.play();
+
+      if (!(await waitForPresentedVideoFrame(video))) {
+        return null;
+      }
+
+      const sourceWidth = video.videoWidth || canvas.width;
+      const sourceHeight = video.videoHeight || canvas.height;
+      const scale = Math.min(1, 640 / Math.max(1, sourceWidth));
+      const output = document.createElement('canvas');
+      output.width = Math.max(1, Math.round(sourceWidth * scale));
+      output.height = Math.max(1, Math.round(sourceHeight * scale));
+      const context = output.getContext('2d', { alpha: false });
+
+      if (!context) {
+        return null;
+      }
+
+      context.imageSmoothingEnabled = false;
+      context.drawImage(video, 0, 0, output.width, output.height);
+      return output.toDataURL('image/png');
+    } catch (error) {
+      console.warn('Unable to capture presented emulator frame', error);
+      return null;
+    } finally {
+      video.pause();
+      video.srcObject = null;
+      stream.getTracks().forEach((track) => track.stop());
+    }
+  };
+
+  window.emuarcadeCaptureFrame = capturePresentedFrame;
 
   const getEmulator = () => {
     return window.EJS_emulator || null;
@@ -912,8 +993,10 @@
         return;
       }
 
+      const previewDataUrl = await capturePresentedFrame();
+
       await saveLocalStateArtifact(game.id, bytes);
-      postParentAction('share-state', { state: bytes });
+      postParentAction('share-state', { previewDataUrl, state: bytes });
       displayEmulatorMessage('Checkpoint ready to share');
     } catch (error) {
       console.warn('Unable to capture shared save state', error);
@@ -921,9 +1004,55 @@
     }
   };
 
-  const applyPendingSharedState = async () => {
+  const clearSharedStateLoadRetry = () => {
+    if (sharedStateLoadRetryTimer !== null) {
+      window.clearTimeout(sharedStateLoadRetryTimer);
+      sharedStateLoadRetryTimer = null;
+    }
+  };
+
+  const schedulePendingSharedStateRetry = () => {
+    if (
+      !pendingSharedState ||
+      sharedStateLoadRetryTimer !== null ||
+      stopped
+    ) {
+      return;
+    }
+
+    sharedStateLoadRetryTimer = window.setTimeout(() => {
+      sharedStateLoadRetryTimer = null;
+      void applyPendingSharedState();
+    }, 400);
+  };
+
+  const waitForSharedStateFrame = () => {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        window.clearTimeout(timeoutId);
+        resolve();
+      };
+      const timeoutId = window.setTimeout(finish, 100);
+
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(finish);
+      });
+    });
+  };
+
+  async function applyPendingSharedState() {
     const emulator = getEmulator();
     const bytes = pendingSharedState;
+
+    if (sharedStateLoadInProgress) {
+      return false;
+    }
 
     if (
       !currentGame ||
@@ -931,29 +1060,54 @@
       !emulator?.gameManager ||
       typeof emulator.gameManager.loadState !== 'function'
     ) {
+      schedulePendingSharedStateRetry();
       return false;
     }
 
+    sharedStateLoadInProgress = true;
+
     try {
-      await persistLocalState(bytes);
-      await persistArtifactBytes(
-        currentGame.id,
-        'state',
-        getStateSlot(),
-        getBaseFileName() + '-' + getStateSlot() + '.state',
-        bytes
-      );
+      try {
+        await persistLocalState(bytes);
+        await persistArtifactBytes(
+          currentGame.id,
+          'state',
+          getStateSlot(),
+          getBaseFileName() + '-' + getStateSlot() + '.state',
+          bytes
+        );
+      } catch (error) {
+        console.warn('Unable to cache shared save state locally', error);
+      }
+
       emulator.gameManager.loadState(bytes);
+      await waitForSharedStateFrame();
       pendingSharedState = null;
-      displayEmulatorMessage('Shared checkpoint loaded');
+      sharedStateLoadFailures = 0;
+      clearSharedStateLoadRetry();
+      pauseForSharedCheckpoint();
+      displayEmulatorMessage('Shared checkpoint ready');
       postParentAction('shared-state-loaded');
       return true;
     } catch (error) {
       console.warn('Unable to load shared save state', error);
-      displayEmulatorMessage('Could not load shared checkpoint');
+      sharedStateLoadFailures += 1;
+
+      if (sharedStateLoadFailures < 5) {
+        displayEmulatorMessage('Waiting for shared checkpoint...');
+        schedulePendingSharedStateRetry();
+      } else {
+        pendingSharedState = null;
+        clearSharedStateLoadRetry();
+        displayEmulatorMessage('Could not load shared checkpoint');
+        postParentAction('shared-state-error');
+      }
+
       return false;
+    } finally {
+      sharedStateLoadInProgress = false;
     }
-  };
+  }
 
   const clipButtonState = {
     mode: 'manual',
@@ -1022,10 +1176,17 @@
       const bytes = toUint8Array(data.state);
 
       if (bytes && bytes.byteLength > 0) {
+        clearSharedStateLoadRetry();
+        sharedStateLoadFailures = 0;
         pendingSharedState = bytes;
         void applyPendingSharedState();
       }
 
+      return;
+    }
+
+    if (data.type === 'emuarcade:resume-shared-state') {
+      resumeSharedCheckpoint();
       return;
     }
 
@@ -1138,11 +1299,42 @@
       !emulator.paused &&
       typeof emulator.pause === 'function'
     ) {
-      emulator.pause(true);
+      emulator.pause();
     }
   };
 
   window.emuarcadePause = pauseForClipReview;
+
+  const pauseForSharedCheckpoint = () => {
+    pausedForSharedState = true;
+    pauseEmulator('shared-state');
+  };
+
+  const resumeSharedCheckpoint = () => {
+    if (!pausedForSharedState) {
+      return;
+    }
+
+    claimActiveRunner();
+    pausedForSharedState = false;
+    const emulator = getEmulator();
+
+    if (
+      !emulator ||
+      pausedForOwnership ||
+      document.visibilityState === 'hidden'
+    ) {
+      return;
+    }
+
+    setEmulatorVolume(sessionSettings.muted ? 0 : sessionSettings.volume);
+
+    if (emulator.paused && typeof emulator.play === 'function') {
+      emulator.play(true);
+    }
+  };
+
+  window.emuarcadeResumeSharedState = resumeSharedCheckpoint;
 
   const resumeEmulator = () => {
     const emulator = getEmulator();
@@ -1150,6 +1342,7 @@
     if (
       !emulator ||
       pausedForOwnership ||
+      pausedForSharedState ||
       document.visibilityState === 'hidden'
     ) {
       return;
@@ -1222,6 +1415,8 @@
 
     stopped = true;
     pausedForOwnership = true;
+    pausedForSharedState = false;
+    clearSharedStateLoadRetry();
     pauseEmulator('ownership');
 
     const emulator = getEmulator();

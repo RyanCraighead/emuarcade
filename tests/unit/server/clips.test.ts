@@ -103,7 +103,6 @@ describe('Reddit clip sharing', () => {
     expect(serverMocks.submitPost).toHaveBeenCalledWith({
       imageUrls: ['https://media.reddit.test/uploaded'],
       kind: 'image',
-      runAs: 'USER',
       subredditName: 'emuarcade',
       title: 'Super Test 64',
     });
@@ -203,7 +202,7 @@ describe('Reddit clip sharing', () => {
     expect(submitted?.title).not.toContain('  ');
   });
 
-  it('uses a player-supplied post title and submits as that user', async () => {
+  it('uses a player-supplied title with app-owned uploaded media', async () => {
     await shareClip({
       ...gifInput(),
       postTitle: '  My   best   run  ',
@@ -211,9 +210,11 @@ describe('Reddit clip sharing', () => {
 
     expect(serverMocks.submitPost).toHaveBeenCalledWith(
       expect.objectContaining({
-        runAs: 'USER',
         title: 'My best run',
       })
+    );
+    expect(serverMocks.submitPost.mock.calls[0]?.[0]).not.toHaveProperty(
+      'runAs'
     );
   });
 });

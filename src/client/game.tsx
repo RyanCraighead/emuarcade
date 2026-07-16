@@ -100,8 +100,10 @@ import { trpc } from './trpc';
 
 declare global {
   interface Window {
+    emuarcadeCaptureFrame?: () => Promise<string | null>;
     emuarcadeCaptureStream?: (fps: number) => MediaStream | null;
     emuarcadePause?: () => void;
+    emuarcadeResumeSharedState?: () => void;
     emuarcadeRoot?: Root;
     emuarcadeStop?: () => void;
   }
@@ -117,21 +119,28 @@ type ClipCaptureState =
   | 'encoding-gif'
   | 'sharing';
 
-type RecordedClip = {
-  url: string;
+type LocalClipSource = {
   blob: Blob;
-  thumbnailDataUrl: string | null;
-  mimeType: string;
-  durationMs: number;
-  sizeBytes: number;
-  gameTitle: string;
   core: EmulatorCore;
+  createdAt: number;
+  durationMs: number;
+  gameId: string;
+  gameTitle: string;
   recordingMode: ClipRecordingMode;
 };
 
-type RollingClipChunk = {
+type RecordedClip = LocalClipSource & {
+  url: string;
+  thumbnailDataUrl: string | null;
+  mimeType: string;
+  sizeBytes: number;
+};
+
+type RollingClipSegment = {
   blob: Blob;
-  capturedAt: number;
+  durationMs: number;
+  endedAt: number;
+  mimeType: string;
 };
 
 type GifEncodeProfile = {
@@ -142,16 +151,23 @@ type GifEncodeProfile = {
 
 type RunnerActionMessage =
   | {
-      action: 'clip' | 'rotate' | 'runner-ready' | 'shared-state-loaded';
+      action:
+        | 'clip'
+        | 'rotate'
+        | 'runner-ready'
+        | 'shared-state-error'
+        | 'shared-state-loaded';
       type: 'emuarcade:runner-action';
     }
   | {
       action: 'share-state';
+      previewDataUrl: string | null;
       state: Uint8Array;
       type: 'emuarcade:runner-action';
     };
 
 type StateShareDraft = EncodedSharedState & {
+  gifSource: LocalClipSource | null;
   thumbnailDataUrl: string | null;
 };
 
@@ -168,10 +184,11 @@ type StateShareStatus =
   | 'commenting'
   | 'shared';
 
+type SharedStateLaunchPhase = 'loading' | 'ready' | null;
+
 const LIBRARY_PAGE_SIZE = 6;
 const CLIP_MAX_DURATION_MS = 15_000;
 const ROLLING_CLIP_DURATION_MS = 10_000;
-const CLIP_CHUNK_INTERVAL_MS = 1_000;
 const CLIP_VIDEO_BITS_PER_SECOND = 1_800_000;
 const CLIP_MAX_SHARE_BYTES = 20 * 1024 * 1024;
 const CLIP_MODE_STORAGE_KEY = 'emuarcade-clip-mode';
@@ -281,13 +298,19 @@ const isRunnerActionMessage = (data: unknown): data is RunnerActionMessage => {
   }
 
   if (action === 'share-state') {
-    return Reflect.get(data, 'state') instanceof Uint8Array;
+    const previewDataUrl = Reflect.get(data, 'previewDataUrl');
+
+    return (
+      Reflect.get(data, 'state') instanceof Uint8Array &&
+      (previewDataUrl === null || typeof previewDataUrl === 'string')
+    );
   }
 
   return (
     action === 'clip' ||
     action === 'rotate' ||
     action === 'runner-ready' ||
+    action === 'shared-state-error' ||
     action === 'shared-state-loaded'
   );
 };
@@ -470,7 +493,7 @@ const seekVideo = async (video: HTMLVideoElement, time: number) => {
 };
 
 const encodeClipAsGifWithProfile = async (
-  clip: RecordedClip,
+  clip: Pick<RecordedClip, 'durationMs' | 'url'>,
   profile: GifEncodeProfile
 ) => {
   const video = document.createElement('video');
@@ -538,7 +561,9 @@ const encodeClipAsGifWithProfile = async (
   return new Blob([outputBytes.buffer], { type: 'image/gif' });
 };
 
-const encodeClipAsGif = async (clip: RecordedClip) => {
+const encodeClipAsGif = async (
+  clip: Pick<RecordedClip, 'durationMs' | 'url'>
+) => {
   let lastGif: Blob | null = null;
 
   for (const profile of GIF_ENCODE_PROFILES) {
@@ -551,6 +576,16 @@ const encodeClipAsGif = async (clip: RecordedClip) => {
   }
 
   return lastGif;
+};
+
+const encodeLocalClipAsGif = async (clip: LocalClipSource) => {
+  const url = URL.createObjectURL(clip.blob);
+
+  try {
+    return await encodeClipAsGif({ durationMs: clip.durationMs, url });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 };
 
 const postClipShare = async (
@@ -692,13 +727,15 @@ export const App = () => {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const rollingRecorderRef = useRef<MediaRecorder | null>(null);
   const clipChunksRef = useRef<Blob[]>([]);
-  const rollingChunksRef = useRef<RollingClipChunk[]>([]);
   const clipStreamRef = useRef<MediaStream | null>(null);
   const rollingStreamRef = useRef<MediaStream | null>(null);
+  const rollingFinalizeRef = useRef<
+    (() => Promise<RollingClipSegment | null>) | null
+  >(null);
+  const rollingSegmentTimerRef = useRef<number | null>(null);
   const clipStopTimeoutRef = useRef<number | null>(null);
   const clipStartTimeRef = useRef<number | null>(null);
   const clipUrlRef = useRef<string | null>(null);
-  const rollingMimeTypeRef = useRef('video/webm');
   const pendingSharedStateRef = useRef<PendingSharedState | null>(null);
   const [selectedCore, setSelectedCore] = useState<EmulatorCore>('nes');
   const [title, setTitle] = useState('');
@@ -724,6 +761,8 @@ export const App = () => {
   );
   const [rollingBufferActive, setRollingBufferActive] = useState(false);
   const [recordedClip, setRecordedClip] = useState<RecordedClip | null>(null);
+  const [latestClipSource, setLatestClipSource] =
+    useState<LocalClipSource | null>(null);
   const [sharedClipUrl, setSharedClipUrl] = useState<string | null>(null);
   const [sharedClipPostId, setSharedClipPostId] = useState<string | null>(null);
   const [clipPostTitle, setClipPostTitle] = useState('');
@@ -732,6 +771,8 @@ export const App = () => {
   const [clipCommentPosting, setClipCommentPosting] = useState(false);
   const [incomingSharedState, setIncomingSharedState] =
     useState<SharedStatePostData | null>(null);
+  const [sharedStateLaunchPhase, setSharedStateLaunchPhase] =
+    useState<SharedStateLaunchPhase>(null);
   const [stateShareDraft, setStateShareDraft] =
     useState<StateShareDraft | null>(null);
   const [stateShareTitle, setStateShareTitle] = useState('');
@@ -778,12 +819,7 @@ export const App = () => {
       stateShareDraft &&
       stateShareDraft.compressedBytes <= MAX_STATE_CARTRIDGE_BYTES
     );
-  const canUseClipForStatePreview = Boolean(
-    recordedClip &&
-      activeGameId &&
-      recordedClip.gameTitle ===
-        games.find((game) => game.id === activeGameId)?.title
-  );
+  const canUseClipForStatePreview = Boolean(stateShareDraft?.gifSource);
 
   const selectedGame = useMemo(() => {
     return games.find((game) => game.id === selectedGameId) ?? null;
@@ -946,7 +982,10 @@ export const App = () => {
     );
   }, [activeGameId]);
 
-  const prepareStateShare = async (bytes: Uint8Array) => {
+  const prepareStateShare = async (
+    bytes: Uint8Array,
+    capturedPreviewDataUrl: string | null
+  ) => {
     if (!activeGame?.romBlob) {
       showToast('Start a local game before sharing a state');
       return;
@@ -955,24 +994,56 @@ export const App = () => {
     setStateShareStatus('compressing');
 
     try {
+      const sharingGame = activeGame;
+      const sharingRom = activeGame.romBlob;
+      let gifSource =
+        latestClipSource?.gameId === sharingGame.id ? latestClipSource : null;
+
+      if (clipRecordingMode === 'rolling') {
+        try {
+          const rollingSegment = await rollingFinalizeRef.current?.();
+
+          if (rollingSegment) {
+            gifSource = {
+              blob: rollingSegment.blob,
+              core: sharingGame.core,
+              createdAt: Date.now(),
+              durationMs: rollingSegment.durationMs,
+              gameId: sharingGame.id,
+              gameTitle: sharingGame.title,
+              recordingMode: 'rolling',
+            };
+            setLatestClipSource(gifSource);
+          }
+        } catch (error) {
+          console.warn('Unable to capture rolling checkpoint preview', error);
+        }
+      }
+
+      const runnerCapture =
+        runnerFrameRef.current?.contentWindow?.emuarcadeCaptureFrame;
+      const streamedThumbnailDataUrl = capturedPreviewDataUrl
+        ? capturedPreviewDataUrl
+        : await runnerCapture?.();
+      const canvas = getRunnerCanvas();
+      const thumbnailDataUrl =
+        streamedThumbnailDataUrl ??
+        (canvas ? captureThumbnailDataUrl(canvas) : null);
       const romFingerprint = await createRomFingerprint(
-        activeGame.romBlob,
-        activeGame.core
+        sharingRom,
+        sharingGame.core
       );
       const encoded = encodeSharedState(bytes, {
-        core: activeGame.core,
+        core: sharingGame.core,
         coreFingerprint: getStateCoreFingerprint(
-          activeGame.core,
-          activeGame.settings.n64Core
+          sharingGame.core,
+          sharingGame.settings.n64Core
         ),
-        gameTitle: activeGame.title,
+        gameTitle: sharingGame.title,
         romFingerprint,
       });
-      const canvas = getRunnerCanvas();
-      const thumbnailDataUrl = canvas ? captureThumbnailDataUrl(canvas) : null;
-
-      setStateShareDraft({ ...encoded, thumbnailDataUrl });
-      setStateShareTitle(`${activeGame.title}: play from here`);
+      setStateShareDraft({ ...encoded, gifSource, thumbnailDataUrl });
+      setStateShareTitle(`${sharingGame.title}: play from here`);
       setStateShareComment('');
       setStateSharePreviewKind(thumbnailDataUrl ? 'image' : 'hidden');
       setStateShareResult(null);
@@ -1031,11 +1102,11 @@ export const App = () => {
       if (stateSharePreviewKind === 'image') {
         previewDataUrl = stateShareDraft.thumbnailDataUrl;
       } else if (stateSharePreviewKind === 'gif') {
-        if (!recordedClip) {
+        if (!stateShareDraft.gifSource) {
           throw new Error('Record a clip before using a GIF preview');
         }
 
-        const gif = await encodeClipAsGif(recordedClip);
+        const gif = await encodeLocalClipAsGif(stateShareDraft.gifSource);
 
         if (!gif || gif.size > CLIP_MAX_SHARE_BYTES) {
           throw new Error('The GIF preview is too large to share');
@@ -1085,14 +1156,26 @@ export const App = () => {
   };
 
   const stopRollingBuffer = useCallback(() => {
-    if (rollingRecorderRef.current?.state === 'recording') {
-      rollingRecorderRef.current.stop();
-      return;
+    if (rollingSegmentTimerRef.current !== null) {
+      window.clearTimeout(rollingSegmentTimerRef.current);
+      rollingSegmentTimerRef.current = null;
     }
 
-    rollingStreamRef.current?.getTracks().forEach((track) => track.stop());
-    rollingStreamRef.current = null;
+    const recorder = rollingRecorderRef.current;
+    const stream = rollingStreamRef.current;
+
     rollingRecorderRef.current = null;
+    rollingStreamRef.current = null;
+    rollingFinalizeRef.current = null;
+
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.ondataavailable = null;
+      recorder.onerror = null;
+      recorder.onstop = null;
+      recorder.stop();
+    }
+
+    stream?.getTracks().forEach((track) => track.stop());
     setRollingBufferActive(false);
   }, []);
 
@@ -1109,11 +1192,6 @@ export const App = () => {
       clipStreamRef.current = null;
     }
   };
-
-  const stopRollingStream = useCallback(() => {
-    rollingStreamRef.current?.getTracks().forEach((track) => track.stop());
-    rollingStreamRef.current = null;
-  }, []);
 
   const revokeClipUrl = () => {
     if (clipUrlRef.current) {
@@ -1148,19 +1226,25 @@ export const App = () => {
     }
 
     const clipUrl = URL.createObjectURL(blob);
+    const localClipSource: LocalClipSource = {
+      blob,
+      core: game.core,
+      createdAt: Date.now(),
+      durationMs,
+      gameId: game.id,
+      gameTitle: game.title,
+      recordingMode,
+    };
 
     pauseRunnerFrame();
+    setLatestClipSource(localClipSource);
 
     setNextRecordedClip({
+      ...localClipSource,
       url: clipUrl,
-      blob,
       thumbnailDataUrl: canvas ? captureThumbnailDataUrl(canvas) : null,
       mimeType: blob.type || getPreferredClipMimeType() || 'video/webm',
-      durationMs,
       sizeBytes: blob.size,
-      gameTitle: game.title,
-      core: game.core,
-      recordingMode,
     });
     setSharedClipUrl(null);
     setSharedClipPostId(null);
@@ -1293,6 +1377,22 @@ export const App = () => {
     }
   };
 
+  const selectStateShareGifPreview = () => {
+    if (stateShareDraft?.gifSource) {
+      setStateSharePreviewKind('gif');
+      return;
+    }
+
+    if (clipRecordingMode === 'rolling') {
+      showToast('The rolling buffer is still warming up');
+      return;
+    }
+
+    closeStateShare();
+    startClipRecording();
+    showToast('Stop the clip, then share the checkpoint again');
+  };
+
   const saveRollingClip = async () => {
     if (!activeGame) {
       showToast('Start a game before clipping');
@@ -1308,48 +1408,37 @@ export const App = () => {
       return;
     }
 
-    const recorder = rollingRecorderRef.current;
     const canvas = getRunnerCanvas();
+    const finalizeRollingSegment = rollingFinalizeRef.current;
 
-    if (!recorder || recorder.state !== 'recording' || !canvas) {
+    if (!finalizeRollingSegment || !canvas) {
       showToast('Rolling buffer is still warming up');
       return;
     }
 
     try {
-      recorder.requestData();
-      await new Promise((resolve) => window.setTimeout(resolve, 120));
-    } catch {
-      // Some engines may not support requestData during a timesliced capture.
+      setClipState('processing');
+      const segment = await finalizeRollingSegment();
+
+      if (!segment || segment.blob.size === 0) {
+        setClipState('idle');
+        showToast('Rolling buffer is still warming up');
+        return;
+      }
+
+      createRecordedClip(
+        segment.blob,
+        segment.durationMs,
+        activeGame,
+        canvas,
+        'rolling'
+      );
+      showToast('Recent gameplay saved');
+    } catch (error) {
+      console.error('Unable to save rolling clip', error);
+      setClipState('idle');
+      showToast('Could not save the rolling clip');
     }
-
-    const now = Date.now();
-    const cutoff = now - ROLLING_CLIP_DURATION_MS - CLIP_CHUNK_INTERVAL_MS;
-    const chunks = rollingChunksRef.current.filter(
-      (chunk) => chunk.capturedAt >= cutoff
-    );
-
-    if (chunks.length === 0) {
-      showToast('Rolling buffer is still warming up');
-      return;
-    }
-
-    const oldestChunk = chunks[0];
-    const durationMs = Math.min(
-      ROLLING_CLIP_DURATION_MS,
-      Math.max(
-        CLIP_CHUNK_INTERVAL_MS,
-        now - (oldestChunk?.capturedAt ?? now) + CLIP_CHUNK_INTERVAL_MS
-      )
-    );
-    const blob = new Blob(
-      chunks.map((chunk) => chunk.blob),
-      { type: rollingMimeTypeRef.current || 'video/webm' }
-    );
-
-    setClipState('processing');
-    createRecordedClip(blob, durationMs, activeGame, canvas, 'rolling');
-    showToast('Last 10 seconds saved');
   };
 
   const handleClipCapture = () => {
@@ -1483,7 +1572,7 @@ export const App = () => {
       }
 
       if (event.data.action === 'share-state') {
-        void prepareStateShare(event.data.state);
+        void prepareStateShare(event.data.state, event.data.previewDataUrl);
         return;
       }
 
@@ -1495,8 +1584,16 @@ export const App = () => {
 
       if (event.data.action === 'shared-state-loaded') {
         pendingSharedStateRef.current = null;
+        setSharedStateLaunchPhase('ready');
+        showToast('Shared checkpoint ready');
+        return;
+      }
+
+      if (event.data.action === 'shared-state-error') {
+        pendingSharedStateRef.current = null;
+        setSharedStateLaunchPhase(null);
         setIncomingSharedState(null);
-        showToast('Shared checkpoint loaded');
+        showToast('Could not load this shared checkpoint');
         return;
       }
 
@@ -1526,81 +1623,181 @@ export const App = () => {
 
   useEffect(() => {
     if (clipRecordingMode !== 'rolling' || !activeGame || !runnerSrc) {
-      stopRollingBuffer();
       return;
     }
 
     let cancelled = false;
     let retryTimer: number | null = null;
+    let completedSegments: RollingClipSegment[] = [];
+    let captureResolver:
+      | ((segment: RollingClipSegment | null) => void)
+      | null = null;
 
-    const startBuffer = (canvas: HTMLCanvasElement) => {
-      if (
-        rollingRecorderRef.current?.state === 'recording' ||
-        typeof MediaRecorder === 'undefined'
-      ) {
+    const clearRetryTimer = () => {
+      if (retryTimer !== null) {
+        window.clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+    };
+
+    const clearSegmentTimer = () => {
+      if (rollingSegmentTimerRef.current !== null) {
+        window.clearTimeout(rollingSegmentTimerRef.current);
+        rollingSegmentTimerRef.current = null;
+      }
+    };
+
+    const stopLocalStream = (stream: MediaStream) => {
+      stream.getTracks().forEach((track) => track.stop());
+
+      if (rollingStreamRef.current === stream) {
+        rollingStreamRef.current = null;
+      }
+    };
+
+    const scheduleStart = () => {
+      if (cancelled || retryTimer !== null) {
         return;
       }
 
-      try {
-        const stream = createClipStream(canvas);
+      retryTimer = window.setTimeout(() => {
+        retryTimer = null;
+        tryStart();
+      }, 500);
+    };
 
-        if (stream.getVideoTracks().length === 0) {
-          stream.getTracks().forEach((track) => track.stop());
+    const selectCapturedSegment = (endedAt: number) => {
+      const recentSegments = completedSegments.filter(
+        (segment) =>
+          endedAt - segment.endedAt <= ROLLING_CLIP_DURATION_MS + 5_000
+      );
+
+      return (
+        recentSegments.find(
+          (segment) => segment.durationMs >= ROLLING_CLIP_DURATION_MS / 2
+        ) ??
+        recentSegments[0] ??
+        null
+      );
+    };
+
+    const startSegment = (stream: MediaStream) => {
+      if (cancelled) {
+        stopLocalStream(stream);
+        return;
+      }
+
+      let recorder: MediaRecorder;
+
+      try {
+        recorder = createClipRecorder(stream);
+      } catch (error) {
+        console.warn('Unable to create rolling recorder', error);
+        stopLocalStream(stream);
+        setRollingBufferActive(false);
+        scheduleStart();
+        return;
+      }
+
+      const chunks: Blob[] = [];
+      const startedAt = Date.now();
+      let failed = false;
+
+      rollingRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
+
+      recorder.onerror = () => {
+        failed = true;
+        setRollingBufferActive(false);
+        console.warn('Rolling clip buffer failed for', activeGame.title);
+      };
+
+      recorder.onstop = () => {
+        clearSegmentTimer();
+
+        if (rollingRecorderRef.current === recorder) {
+          rollingRecorderRef.current = null;
+        }
+
+        const endedAt = Date.now();
+        const mimeType =
+          recorder.mimeType || getPreferredClipMimeType() || 'video/webm';
+        const blob = new Blob(chunks, { type: mimeType });
+
+        if (!failed && blob.size > 0) {
+          completedSegments = [
+            {
+              blob,
+              durationMs: Math.min(
+                ROLLING_CLIP_DURATION_MS,
+                Math.max(1, endedAt - startedAt)
+              ),
+              endedAt,
+              mimeType,
+            },
+            ...completedSegments,
+          ].slice(0, 3);
+        }
+
+        if (captureResolver) {
+          const resolveCapture = captureResolver;
+          captureResolver = null;
+          resolveCapture(failed ? null : selectCapturedSegment(endedAt));
+        }
+
+        if (cancelled) {
+          stopLocalStream(stream);
           return;
         }
 
-        const recorder = createClipRecorder(stream);
+        const hasLiveVideo = stream
+          .getVideoTracks()
+          .some((track) => track.readyState === 'live');
 
-        rollingChunksRef.current = [];
-        rollingStreamRef.current = stream;
-        rollingRecorderRef.current = recorder;
-        rollingMimeTypeRef.current = recorder.mimeType || 'video/webm';
+        if (hasLiveVideo && !failed) {
+          startSegment(stream);
+          return;
+        }
 
-        recorder.ondataavailable = (event) => {
-          if (event.data.size === 0) {
-            return;
-          }
-
-          const now = Date.now();
-          const cutoff =
-            now - ROLLING_CLIP_DURATION_MS - CLIP_CHUNK_INTERVAL_MS;
-
-          rollingChunksRef.current = [
-            ...rollingChunksRef.current,
-            {
-              blob: event.data,
-              capturedAt: now,
-            },
-          ].filter((chunk) => chunk.capturedAt >= cutoff);
-          setRollingBufferActive(true);
-        };
-
-        recorder.onstop = () => {
-          stopRollingStream();
-          rollingRecorderRef.current = null;
-          setRollingBufferActive(false);
-        };
-
-        recorder.onerror = () => {
-          stopRollingStream();
-          rollingRecorderRef.current = null;
-          setRollingBufferActive(false);
-          console.warn('Rolling clip buffer failed for', activeGame.title);
-        };
-
-        recorder.start(CLIP_CHUNK_INTERVAL_MS);
-      } catch (error) {
-        console.error('Unable to start rolling buffer', error);
-        stopRollingStream();
-        rollingRecorderRef.current = null;
+        stopLocalStream(stream);
         setRollingBufferActive(false);
+        scheduleStart();
+      };
+
+      try {
+        recorder.start();
+        setRollingBufferActive(true);
+        rollingSegmentTimerRef.current = window.setTimeout(() => {
+          if (recorder.state !== 'inactive') {
+            recorder.stop();
+          }
+        }, ROLLING_CLIP_DURATION_MS);
+      } catch (error) {
+        recorder.ondataavailable = null;
+        recorder.onerror = null;
+        recorder.onstop = null;
+
+        if (rollingRecorderRef.current === recorder) {
+          rollingRecorderRef.current = null;
+        }
+
+        console.warn('Unable to start rolling recorder', error);
+        stopLocalStream(stream);
+        setRollingBufferActive(false);
+        scheduleStart();
       }
     };
 
     const tryStart = () => {
       if (
         cancelled ||
-        rollingRecorderRef.current?.state === 'recording' ||
+        (rollingRecorderRef.current &&
+          rollingRecorderRef.current.state !== 'inactive') ||
         typeof MediaRecorder === 'undefined'
       ) {
         return;
@@ -1609,20 +1806,73 @@ export const App = () => {
       const canvas = getRunnerCanvas();
 
       if (!canvas) {
-        retryTimer = window.setTimeout(tryStart, 500);
+        scheduleStart();
         return;
       }
 
-      startBuffer(canvas);
+      try {
+        const stream = createClipStream(canvas);
+        const hasLiveVideo = stream
+          .getVideoTracks()
+          .some((track) => track.readyState === 'live');
+
+        if (!hasLiveVideo) {
+          stream.getTracks().forEach((track) => track.stop());
+          scheduleStart();
+          return;
+        }
+
+        rollingStreamRef.current = stream;
+        startSegment(stream);
+      } catch (error) {
+        console.warn('Unable to capture rolling clip stream', error);
+        setRollingBufferActive(false);
+        scheduleStart();
+      }
     };
 
+    const finalizeRollingSegment = () => {
+      return new Promise<RollingClipSegment | null>((resolve) => {
+        const recorder = rollingRecorderRef.current;
+
+        if (!recorder || recorder.state === 'inactive') {
+          resolve(completedSegments[0] ?? null);
+          return;
+        }
+
+        if (captureResolver) {
+          resolve(null);
+          return;
+        }
+
+        captureResolver = resolve;
+        clearSegmentTimer();
+
+        try {
+          recorder.stop();
+        } catch (error) {
+          captureResolver = null;
+          console.warn('Unable to finalize rolling clip', error);
+          resolve(completedSegments[0] ?? null);
+          scheduleStart();
+        }
+      });
+    };
+
+    rollingFinalizeRef.current = finalizeRollingSegment;
     tryStart();
 
     return () => {
       cancelled = true;
+      clearRetryTimer();
 
-      if (retryTimer !== null) {
-        window.clearTimeout(retryTimer);
+      if (captureResolver) {
+        captureResolver(null);
+        captureResolver = null;
+      }
+
+      if (rollingFinalizeRef.current === finalizeRollingSegment) {
+        rollingFinalizeRef.current = null;
       }
 
       stopRollingBuffer();
@@ -1635,7 +1885,6 @@ export const App = () => {
     getRunnerCanvas,
     runnerSrc,
     stopRollingBuffer,
-    stopRollingStream,
   ]);
 
   const loadLibrary = useCallback(async (selectId: string | null = null) => {
@@ -1773,18 +2022,38 @@ export const App = () => {
     }
   };
 
-  const activateGame = useCallback((game: StoredGame) => {
-    stopRunnerFrame();
-    setSelectedGameId(game.id);
-    setActiveGameId(game.id);
-    setRunnerKey((current) => current + 1);
-    setActivePanel('play');
-    recordGameLaunch({
-      core: game.core,
-      gameId: game.id,
-      title: game.title,
-    });
-  }, [stopRunnerFrame]);
+  const activateGame = useCallback(
+    (game: StoredGame) => {
+      setSharedStateLaunchPhase(
+        pendingSharedStateRef.current?.gameId === game.id ? 'loading' : null
+      );
+      stopRunnerFrame();
+      setSelectedGameId(game.id);
+      setActiveGameId(game.id);
+      setRunnerKey((current) => current + 1);
+      setActivePanel('play');
+      recordGameLaunch({
+        core: game.core,
+        gameId: game.id,
+        title: game.title,
+      });
+    },
+    [stopRunnerFrame]
+  );
+
+  const startSharedCheckpoint = () => {
+    const runnerWindow = runnerFrameRef.current?.contentWindow;
+
+    if (runnerWindow?.emuarcadeResumeSharedState) {
+      runnerWindow.emuarcadeResumeSharedState();
+    } else {
+      runnerWindow?.postMessage({ type: 'emuarcade:resume-shared-state' }, '*');
+    }
+
+    runnerFrameRef.current?.focus();
+    setSharedStateLaunchPhase(null);
+    setIncomingSharedState(null);
+  };
 
   const addFileGame = async () => {
     if (!romFile) {
@@ -2446,6 +2715,25 @@ export const App = () => {
               </div>
             </div>
           )}
+          {runnerSrc && sharedStateLaunchPhase === 'loading' ? (
+            <div className="absolute inset-0 z-10 grid place-items-center bg-black/45 p-4">
+              <div className="rounded-md border border-white/20 bg-[#111315]/95 px-5 py-3 text-sm font-semibold text-white shadow-2xl">
+                Loading checkpoint...
+              </div>
+            </div>
+          ) : null}
+          {runnerSrc && sharedStateLaunchPhase === 'ready' ? (
+            <button
+              aria-label="Start shared checkpoint"
+              className="group absolute inset-0 z-10 grid cursor-pointer place-items-center bg-black/45 p-4 text-white focus-visible:outline-none"
+              onClick={startSharedCheckpoint}
+            >
+              <span className="inline-flex min-h-12 items-center gap-3 rounded-md border border-white/25 bg-[#ff4500] px-5 py-3 text-base font-semibold shadow-2xl transition group-hover:bg-[#e63d00] group-focus-visible:outline-2 group-focus-visible:outline-offset-4 group-focus-visible:outline-white">
+                <Play className="h-5 w-5" />
+                Click or tap here to start
+              </span>
+            </button>
+          ) : null}
           {stateShareDraft ? (
             <div className="absolute inset-0 z-20 grid place-items-center overflow-y-auto bg-black/70 p-3">
               <div
@@ -2532,11 +2820,16 @@ export const App = () => {
                           ? 'border-[#ff4500] bg-[#3a2118] text-white'
                           : 'border-[#3a3f3b] bg-[#1d201f] text-[#c9c1ad]'
                       }`}
-                      disabled={!canUseClipForStatePreview}
-                      onClick={() => setStateSharePreviewKind('gif')}
+                      onClick={selectStateShareGifPreview}
                     >
                       <MonitorPlay className="h-4 w-4" />
-                      Latest GIF
+                      {canUseClipForStatePreview
+                        ? stateShareDraft.gifSource?.recordingMode === 'rolling'
+                          ? 'Last 10 sec'
+                          : 'Gameplay GIF'
+                        : clipRecordingMode === 'rolling'
+                          ? 'GIF warming'
+                          : 'Record GIF'}
                     </button>
                     <button
                       className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md border px-2 text-xs ${
@@ -2550,6 +2843,13 @@ export const App = () => {
                       Hidden
                     </button>
                   </div>
+                  <p className="mt-1.5 text-[11px] leading-4 text-[#8e958a]">
+                    {stateShareDraft.gifSource?.recordingMode === 'rolling'
+                      ? 'The rolling buffer was captured with this checkpoint.'
+                      : stateShareDraft.gifSource
+                        ? 'The latest local clip will be attached to this checkpoint post.'
+                        : 'Snapshot and Hidden create one checkpoint post without a separate GIF post.'}
+                  </p>
                 </div>
 
                 <label className="mt-3 grid gap-1 text-xs text-[#c9c1ad]">
@@ -2654,7 +2954,7 @@ export const App = () => {
                 <button
                   className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#3a3f3b] bg-[#1d201f] transition hover:border-[#ff4500]"
                   onClick={discardClip}
-                  title="Discard clip"
+                  title="Close clip"
                 >
                   <X className="h-4 w-4" />
                 </button>

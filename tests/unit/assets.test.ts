@@ -96,10 +96,55 @@ describe('bundled application assets', () => {
     expect(runner).toContain(
       'window.emuarcadeCaptureStream = getCaptureStream'
     );
+    expect(runner).toContain(
+      'window.emuarcadeCaptureFrame = capturePresentedFrame'
+    );
     expect(runner).toContain('window.emuarcadePause = pauseForClipReview');
+    expect(runner).toMatch(
+      /const pauseForClipReview = \(\) => \{[\s\S]*?emulator\.pause\(\);[\s\S]*?\};/
+    );
+    expect(runner).toContain(
+      'window.emuarcadeResumeSharedState = resumeSharedCheckpoint'
+    );
     expect(runner).toContain('window.parent.postMessage(');
     expect(runner).toContain("displayName: 'Share State'");
     expect(runner).toContain("data.type === 'emuarcade:load-shared-state'");
+    expect(runner).toContain("data.type === 'emuarcade:resume-shared-state'");
+    expect(runner).toContain('schedulePendingSharedStateRetry');
+    expect(runner).toContain('await waitForSharedStateFrame()');
+    expect(runner).toContain('sharedStateLoadFailures < 5');
+    expect(runner).toContain("postParentAction('shared-state-error')");
+  });
+
+  it('keeps rolling clips as complete recorder segments', async () => {
+    const gameClient = await readFile(
+      path.join(process.cwd(), 'src', 'client', 'game.tsx'),
+      'utf8'
+    );
+
+    expect(gameClient).toContain('const finalizeRollingSegment = () =>');
+    expect(gameClient).toContain('recorder.start();');
+    expect(gameClient).toContain('completedSegments = [');
+    expect(gameClient).not.toContain('rollingChunksRef');
+    expect(gameClient).not.toContain('recorder.requestData()');
+  });
+
+  it('attaches local GIF previews directly to checkpoint posts', async () => {
+    const gameClient = await readFile(
+      path.join(process.cwd(), 'src', 'client', 'game.tsx'),
+      'utf8'
+    );
+
+    expect(gameClient).toContain('gifSource: LocalClipSource | null');
+    expect(gameClient).toContain('await rollingFinalizeRef.current?.()');
+    expect(gameClient).toContain(
+      'encodeLocalClipAsGif(stateShareDraft.gifSource)'
+    );
+    expect(gameClient).toContain("gameId: game.id");
+    expect(gameClient).toContain("'Record GIF'");
+    expect(gameClient).not.toContain(
+      'disabled={!canUseClipForStatePreview}'
+    );
   });
 
   it('ships every responsive launcher asset', async () => {

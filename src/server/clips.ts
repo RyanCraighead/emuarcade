@@ -62,7 +62,6 @@ const shareVideoClip = async (
       });
     });
   const post = await reddit.submitPost({
-    runAs: 'USER',
     subredditName,
     title: postTitle,
     richtext,
@@ -108,7 +107,6 @@ const sharePreviewImage = async (
       });
     });
   const post = await reddit.submitPost({
-    runAs: 'USER',
     subredditName,
     title: postTitle,
     richtext,
@@ -136,7 +134,6 @@ const shareGifClip = async (
     const post = await reddit.submitPost({
       imageUrls: [uploaded.mediaUrl],
       kind: 'image',
-      runAs: 'USER',
       subredditName,
       title: postTitle,
     });
