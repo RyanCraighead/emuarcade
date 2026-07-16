@@ -33,5 +33,14 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Unit and integration tests
+        run: npm run test:coverage
+
       - name: Build
         run: npm run build
+
+      - name: Install browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Responsive browser tests
+        run: npm run test:e2e
