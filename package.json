@@ -15,6 +15,7 @@
     "login": "devvit login",
     "local": "vite --config vite.local.config.ts --host 127.0.0.1",
     "montage": "node tools/build-gameplay-montage.mjs",
+    "montage:fetch": "node tools/fetch-gameplay-clips.mjs",
     "prettier": "prettier --write .",
     "test": "vitest run",
     "test:all": "npm run test:coverage && npm run test:e2e",

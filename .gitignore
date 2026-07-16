@@ -5,6 +5,7 @@ dist
 .codex-logs
 .dev-logs
 local/splash-clips
+local/tools
 coverage
 playwright-report
 test-results

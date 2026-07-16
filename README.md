@@ -25,7 +25,7 @@ npm run dev
 `npm run dev` starts Devvit playtest for the configured test subreddit.
 `npm run local` starts a browser-only local Vite server for fast UI and emulator testing without Reddit.
 Run `npm run test:e2e:install` once before the browser suite on a new machine.
-Put ordered gameplay captures in `local/splash-clips`, then run `npm run montage` to rebuild the square splash loop.
+Run `npm run montage:fetch` to prepare the attributed clips in `tools/gameplay-sources.json`, then `npm run montage` to rebuild the bundled square splash loop.
 Use `/game.html` for local expanded-view testing and `/splash.html` for the feed launcher.
 
 ## Important

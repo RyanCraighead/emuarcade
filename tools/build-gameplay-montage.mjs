@@ -28,7 +28,7 @@ const parseArgs = () => {
     clipsDir: join(ROOT, 'local', 'splash-clips'),
     ffmpeg: 'ffmpeg',
     focalY: 0.62,
-    maxClips: 9,
+    maxClips: 12,
     outputDir: join(ROOT, 'public'),
   };
 
@@ -139,8 +139,10 @@ const normalizeClip = (ffmpeg, source, output, focalY) => {
 };
 
 const buildGrid = (ffmpeg, clips, output) => {
+  const gridSide = Math.ceil(Math.sqrt(clips.length));
+  const inputCount = gridSide * gridSide;
   const inputs = Array.from(
-    { length: 9 },
+    { length: inputCount },
     (_, index) => clips[index % clips.length]
   );
   const args = ['-hide_banner', '-loglevel', 'error', '-y'];
@@ -149,21 +151,21 @@ const buildGrid = (ffmpeg, clips, output) => {
     args.push('-stream_loop', '-1', '-i', clip);
   }
 
-  const tileSize = FRAME_SIZE / 3;
+  const tileSize = FRAME_SIZE / gridSide;
   const filters = inputs.map(
     (_, index) =>
       `[${index}:v]scale=${tileSize}:${tileSize}:flags=lanczos,` +
       `setpts=PTS-STARTPTS[t${index}]`
   );
   const tileInputs = inputs.map((_, index) => `[t${index}]`).join('');
-  const layout = Array.from({ length: 9 }, (_, index) => {
-    const column = index % 3;
-    const row = Math.floor(index / 3);
+  const layout = Array.from({ length: inputCount }, (_, index) => {
+    const column = index % gridSide;
+    const row = Math.floor(index / gridSide);
     return `${column * tileSize}_${row * tileSize}`;
   }).join('|');
 
   filters.push(
-    `${tileInputs}xstack=inputs=9:layout=${layout}:fill=black[grid]`
+    `${tileInputs}xstack=inputs=${inputCount}:layout=${layout}:fill=black[grid]`
   );
   filters.push(
     '[grid]' +
