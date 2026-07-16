@@ -46,8 +46,11 @@ import {
   N64_CORE_OPTIONS,
   VIDEO_FILTERS,
   getDefaultClipPostTitle,
+  getStateCoreFingerprint,
+  getStateN64Core,
   getSystemByCore,
   inferCoreFromFileName,
+  isCurrentStateCoreFingerprint,
   isEmulatorCore,
   isN64CoreOption,
   isVideoFilter,
@@ -62,8 +65,11 @@ import type {
 import {
   MAX_SHARED_POST_DATA_BYTES,
   decodeSharedState,
+  decodeSharedStatePayload,
   encodeSharedState,
+  isCartridgeSharedState,
   measurePostDataBytes,
+  withSharedStateCartridge,
   withSharedStatePreview,
 } from '../shared/sharedState';
 import type {
@@ -73,6 +79,7 @@ import type {
   SharedStateShareInput,
   SharedStateShareResult,
 } from '../shared/sharedState';
+import { MAX_STATE_CARTRIDGE_BYTES } from '../shared/stateCartridge';
 import {
   createGameFromFile,
   deleteGame,
@@ -87,6 +94,8 @@ import { detectRomMetadata } from './romMetadata';
 import type { RomMetadata } from './romMetadata';
 import { createRomFingerprint } from './romIdentity';
 import { loadSharedPostData } from './sharedPostContext';
+import { downloadStateCartridge, uploadStateCartridge } from './stateCartridge';
+import type { StateCartridgeProgress } from './stateCartridge';
 import { trpc } from './trpc';
 
 declare global {
@@ -169,6 +178,9 @@ const CLIP_MODE_STORAGE_KEY = 'emuarcade-clip-mode';
 const SHARED_PREVIEW_URL_ESTIMATE = `https://preview.redd.it/${'x'.repeat(
   220
 )}.gif`;
+const SHARED_CARTRIDGE_URL_ESTIMATE = `https://i.redd.it/${'x'.repeat(
+  180
+)}.png`;
 const GIF_ENCODE_PROFILES: readonly GifEncodeProfile[] = [
   { colors: 256, fps: 15, maxWidth: 640 },
   { colors: 256, fps: 12, maxWidth: 560 },
@@ -627,7 +639,10 @@ const findMatchingLocalGame = async (
   for (const game of candidates) {
     if (
       game.romBlob &&
-      (await createRomFingerprint(game.romBlob, game.core)) === postData.r
+      (await createRomFingerprint(game.romBlob, game.core)) === postData.r &&
+      (!postData.f ||
+        getStateCoreFingerprint(game.core, game.settings.n64Core) ===
+          postData.f)
     ) {
       return game;
     }
@@ -728,19 +743,41 @@ export const App = () => {
   const [stateShareResult, setStateShareResult] =
     useState<SharedStateShareResult | null>(null);
   const [stateShareCommentPosted, setStateShareCommentPosted] = useState(false);
+  const [stateCartridgeProgress, setStateCartridgeProgress] =
+    useState<StateCartridgeProgress | null>(null);
   const isDesktopLayout = useIsDesktopLayout();
   const isMobileImmersiveCapable = useIsMobileImmersiveCapable();
   const usePhoneImmersiveLayout = isMobileImmersiveCapable && phoneViewRotated;
 
-  const stateSharePostDataBytes = stateShareDraft
+  const stateShareInlinePostDataBytes = stateShareDraft
     ? getEstimatedSharedPostDataBytes(
         stateShareDraft.postData,
         stateSharePreviewKind
       )
     : 0;
+  const stateShareUsesCartridge = Boolean(
+    stateShareDraft &&
+    stateShareInlinePostDataBytes > MAX_SHARED_POST_DATA_BYTES
+  );
+  const stateSharePostDataBytes = stateShareDraft
+    ? getEstimatedSharedPostDataBytes(
+        stateShareUsesCartridge
+          ? withSharedStateCartridge(
+              stateShareDraft.postData,
+              SHARED_CARTRIDGE_URL_ESTIMATE,
+              stateShareDraft.compressedBytes
+            )
+          : stateShareDraft.postData,
+        stateSharePreviewKind
+      )
+    : 0;
   const stateShareFits =
     stateSharePostDataBytes > 0 &&
-    stateSharePostDataBytes <= MAX_SHARED_POST_DATA_BYTES;
+    stateSharePostDataBytes <= MAX_SHARED_POST_DATA_BYTES &&
+    Boolean(
+      stateShareDraft &&
+      stateShareDraft.compressedBytes <= MAX_STATE_CARTRIDGE_BYTES
+    );
   const canUseClipForStatePreview = Boolean(
     recordedClip &&
       activeGameId &&
@@ -924,6 +961,10 @@ export const App = () => {
       );
       const encoded = encodeSharedState(bytes, {
         core: activeGame.core,
+        coreFingerprint: getStateCoreFingerprint(
+          activeGame.core,
+          activeGame.settings.n64Core
+        ),
         gameTitle: activeGame.title,
         romFingerprint,
       });
@@ -936,10 +977,11 @@ export const App = () => {
       setStateSharePreviewKind(thumbnailDataUrl ? 'image' : 'hidden');
       setStateShareResult(null);
       setStateShareCommentPosted(false);
+      setStateCartridgeProgress(null);
       setStateShareStatus('idle');
 
       if (!encoded.fits) {
-        showToast('This exact state is too large for Reddit post data');
+        showToast('This checkpoint will use a Reddit-hosted State Cartridge');
       }
     } catch (error) {
       console.error('Unable to prepare shared state', error);
@@ -959,6 +1001,7 @@ export const App = () => {
 
     setStateShareDraft(null);
     setStateShareResult(null);
+    setStateCartridgeProgress(null);
     setStateShareStatus('idle');
   };
 
@@ -971,6 +1014,19 @@ export const App = () => {
 
     try {
       let previewDataUrl: string | null = null;
+      let postData = stateShareDraft.postData;
+
+      if (stateShareUsesCartridge) {
+        const manifestUrl = await uploadStateCartridge(
+          stateShareDraft.compressedPayload,
+          setStateCartridgeProgress
+        );
+        postData = withSharedStateCartridge(
+          postData,
+          manifestUrl,
+          stateShareDraft.compressedBytes
+        );
+      }
 
       if (stateSharePreviewKind === 'image') {
         previewDataUrl = stateShareDraft.thumbnailDataUrl;
@@ -989,17 +1045,19 @@ export const App = () => {
       }
 
       const result = await postStateShare({
-        postData: stateShareDraft.postData,
+        postData,
         previewDataUrl,
         previewKind: stateSharePreviewKind,
         title: stateShareTitle,
       });
 
       setStateShareResult(result);
+      setStateCartridgeProgress(null);
       setStateShareStatus('shared');
       showToast(`Shared checkpoint to r/${result.subredditName}`);
     } catch (error) {
       console.error('Unable to share state', error);
+      setStateCartridgeProgress(null);
       setStateShareStatus('idle');
       showToast(error instanceof Error ? error.message : 'Could not share state');
     }
@@ -1742,7 +1800,13 @@ export const App = () => {
     setBusy(true);
 
     try {
+      const pending = pendingSharedStateRef.current;
+      const sharedN64Core = getStateN64Core(pending?.postData.f);
       const existingGame = reconnectGame;
+      const settings = {
+        ...(existingGame?.settings ?? DEFAULT_SETTINGS),
+        ...(sharedN64Core ? { n64Core: sharedN64Core } : {}),
+      };
       const game = existingGame
         ? await createGameFromFile({
             id: existingGame.id,
@@ -1750,7 +1814,7 @@ export const App = () => {
             core: existingGame.core,
             romFile,
             biosFile,
-            settings: existingGame.settings,
+            settings,
             createdAt: existingGame.createdAt,
           })
         : await createGameFromFile({
@@ -1758,13 +1822,11 @@ export const App = () => {
             core: selectedCore,
             romFile,
             biosFile,
-            settings: DEFAULT_SETTINGS,
+            settings,
           });
 
       await refreshLibrary(game.id);
       clearImport();
-      const pending = pendingSharedStateRef.current;
-
       if (pending && pending.gameId === null && game.romBlob) {
         const fingerprint = await createRomFingerprint(
           game.romBlob,
@@ -1773,7 +1835,10 @@ export const App = () => {
 
         if (
           game.core === pending.postData.c &&
-          fingerprint === pending.postData.r
+          fingerprint === pending.postData.r &&
+          (!pending.postData.f ||
+            getStateCoreFingerprint(game.core, game.settings.n64Core) ===
+              pending.postData.f)
         ) {
           pendingSharedStateRef.current = { ...pending, gameId: game.id };
           activateGame(game);
@@ -1829,7 +1894,21 @@ export const App = () => {
       }
 
       try {
-        const bytes = decodeSharedState(postData);
+        if (!isCurrentStateCoreFingerprint(postData.c, postData.f)) {
+          showToast('This checkpoint needs a different emulator core build');
+          return;
+        }
+
+        if (isCartridgeSharedState(postData)) {
+          showToast('Downloading verified State Cartridge...');
+        }
+
+        const compressedPayload = isCartridgeSharedState(postData)
+          ? await downloadStateCartridge(postData)
+          : null;
+        const bytes = compressedPayload
+          ? decodeSharedStatePayload(postData, compressedPayload)
+          : decodeSharedState(postData);
         const library = await listGames();
         const matchingGame = await findMatchingLocalGame(library, postData);
 
@@ -2406,14 +2485,17 @@ export const App = () => {
                     </strong>
                   </div>
                   <div className="rounded-md border border-[#2f332f] bg-[#17191a] p-2">
-                    <div className="text-[#8e958a]">Post data</div>
+                    <div className="text-[#8e958a]">Storage</div>
                     <strong
                       className={
                         stateShareFits ? 'text-[#34d399]' : 'text-[#ff8066]'
                       }
                     >
-                      {stateSharePostDataBytes}/{MAX_SHARED_POST_DATA_BYTES} B
+                      {stateShareUsesCartridge ? 'Cartridge' : 'Inline'}
                     </strong>
+                    <div className="text-[10px] text-[#8e958a]">
+                      {stateSharePostDataBytes}/{MAX_SHARED_POST_DATA_BYTES} B
+                    </div>
                   </div>
                 </div>
 
@@ -2483,10 +2565,17 @@ export const App = () => {
                   />
                 </label>
 
+                {stateShareUsesCartridge && stateShareFits ? (
+                  <p className="mt-3 rounded-md border border-[#24664d] bg-[#10271f] p-2 text-xs leading-5 text-[#9ce8c6]">
+                    The exact compressed state will use verified Reddit-hosted
+                    PNG State Cartridges. No ROM or Redis data is included.
+                  </p>
+                ) : null}
+
                 {!stateShareFits ? (
                   <p className="mt-3 rounded-md border border-[#7f3124] bg-[#2b1511] p-2 text-xs leading-5 text-[#ffb5a4]">
-                    This core's exact state does not compress below the safe
-                    post-data limit. It has not been truncated or altered.
+                    This compressed state exceeds the safe State Cartridge
+                    limit. It has not been truncated or altered.
                   </p>
                 ) : null}
 
@@ -2531,9 +2620,16 @@ export const App = () => {
                   >
                     <Share2 className="h-4 w-4" />
                     {stateShareStatus === 'sharing'
-                      ? stateSharePreviewKind === 'gif'
-                        ? 'Encoding and sharing'
-                        : 'Sharing'
+                      ? stateCartridgeProgress?.phase === 'upload'
+                        ? `Uploading cartridge ${Math.min(
+                            stateCartridgeProgress.completed + 1,
+                            stateCartridgeProgress.total
+                          )}/${stateCartridgeProgress.total}`
+                        : stateCartridgeProgress?.phase === 'manifest'
+                          ? 'Verifying cartridge'
+                          : stateSharePreviewKind === 'gif'
+                            ? 'Encoding and sharing'
+                            : 'Sharing'
                       : 'Create checkpoint post'}
                   </button>
                 )}

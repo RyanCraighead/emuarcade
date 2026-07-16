@@ -2,9 +2,11 @@ import { context, media, reddit } from '@devvit/web/server';
 import {
   MAX_SHARED_POST_DATA_BYTES,
   decodeSharedState,
+  isCartridgeSharedState,
   measurePostDataBytes,
   withSharedStatePreview,
 } from '../shared/sharedState';
+import { readStateCartridgeManifest } from './stateCartridges';
 import type {
   SharedStateCommentInput,
   SharedStateShareInput,
@@ -74,7 +76,19 @@ export const shareState = async (
     throw new Error('Save state exceeds the safe post-data limit');
   }
 
-  decodeSharedState(input.postData);
+  if (isCartridgeSharedState(input.postData)) {
+    if (!input.postData.m || !input.postData.b) {
+      throw new Error('State Cartridge metadata is incomplete');
+    }
+
+    const manifest = await readStateCartridgeManifest(input.postData.m);
+
+    if (manifest.n !== input.postData.b) {
+      throw new Error('State Cartridge length does not match the post');
+    }
+  } else {
+    decodeSharedState(input.postData);
+  }
 
   const mediaUrl = await uploadPreview(input);
   const postData = withSharedStatePreview(

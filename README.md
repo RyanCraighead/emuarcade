@@ -10,6 +10,7 @@ EmuArcade is a Devvit Web app that lets Reddit users run their own legally provi
 - EmulatorJS stable runtime
 - Local save files, save states, and touch-control layouts
 - Manual clips, rolling 10-second clips, GIF sharing, and local video download
+- Exact shared checkpoints using inline post data or Reddit-hosted State Cartridges
 - Per-game volume, shader, rewind, thread, and virtual gamepad settings
 - Lightweight Reddit feed view and expanded emulator view
 
@@ -33,6 +34,12 @@ Use `/game.html` for local expanded-view testing and `/splash.html` for the feed
 EmuArcade does not include ROMs, BIOS files, or copyrighted game content. Users are responsible for providing files they have the right to use. Local file imports stay in the user's browser and are not sent to the Devvit server.
 
 Devvit app updates can change the WebView origin, so browser-only storage may not survive every playtest or release. EmuArcade does not use Redis or server storage for user libraries, ROMs, BIOS files, saves, save states, or control layouts.
+
+Shared checkpoint details and limits are documented in [STATE_CARTRIDGES.md](STATE_CARTRIDGES.md).
+
+## Fetch Domains
+
+- `i.redd.it` and `preview.redd.it` - Read back PNG State Cartridges created with Reddit's media API so every uploaded state can be verified byte for byte and loaded through the app backend.
 
 ## License
 

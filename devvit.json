@@ -2,6 +2,10 @@
   "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
   "name": "emuarcade",
   "permissions": {
+    "http": {
+      "enable": true,
+      "domains": ["i.redd.it", "preview.redd.it"]
+    },
     "media": true,
     "redis": true,
     "reddit": {

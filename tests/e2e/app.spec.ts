@@ -1,5 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { encodeSharedState } from '../../src/shared/sharedState';
+import {
+  encodeSharedState,
+  withSharedStateCartridge,
+} from '../../src/shared/sharedState';
+import {
+  calculateStateCartridgeSha256,
+  encodeStateCartridgeBase64,
+  splitStateCartridgePayload,
+} from '../../src/shared/stateCartridge';
 
 const artworkByProject: Record<string, string> = {
   desktop: 'splash-console-wide.webp',
@@ -135,6 +143,7 @@ test('local checkpoint sharing renders a playable custom-post preview', async ({
 
   const encoded = encodeSharedState(new Uint8Array(32_000), {
     core: 'nes',
+    coreFingerprint: 'ejs-4.2.3:fceumm',
     gameTitle: 'Checkpoint Browser Test',
     romFingerprint: 'browser123456789',
   });
@@ -164,6 +173,88 @@ test('local checkpoint sharing renders a playable custom-post preview', async ({
   ).toBeVisible();
 
   await page.getByRole('button', { name: /Play Checkpoint Browser Test/ }).click();
+  await expect(page).toHaveURL(/game\.html\?localShare=/);
+  await expect(page.getByText('Play shared checkpoint')).toBeVisible();
+});
+
+test('local State Cartridge checkpoint round trips through a custom post', async ({
+  page,
+  request,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop');
+
+  const state = new Uint8Array(24_000);
+  let random = 0x6d2b79f5;
+
+  for (let index = 0; index < state.length; index += 1) {
+    random ^= random << 13;
+    random ^= random >>> 17;
+    random ^= random << 5;
+    state[index] = random & 0xff;
+  }
+
+  const encoded = encodeSharedState(state, {
+    core: 'nes',
+    coreFingerprint: 'ejs-4.2.3:fceumm',
+    gameTitle: 'Cartridge Browser Test',
+    romFingerprint: 'cartridge1234567',
+  });
+  expect(encoded.fits).toBe(false);
+
+  const payloads = splitStateCartridgePayload(encoded.compressedPayload);
+  const chunks = [];
+
+  for (let index = 0; index < payloads.length; index += 1) {
+    const payload = payloads[index];
+
+    if (!payload) {
+      throw new Error('Missing test cartridge chunk');
+    }
+
+    const response = await request.post('/api/state-cartridge/chunk', {
+      data: {
+        data: encodeStateCartridgeBase64(payload),
+        index,
+        count: payloads.length,
+      },
+    });
+
+    expect(response.ok()).toBe(true);
+    chunks.push(await response.json());
+  }
+
+  const manifestResponse = await request.post('/api/state-cartridge/manifest', {
+    data: {
+      v: 1,
+      n: encoded.compressedBytes,
+      h: await calculateStateCartridgeSha256(encoded.compressedPayload),
+      chunks,
+    },
+  });
+  expect(manifestResponse.ok()).toBe(true);
+  const manifestResult = await manifestResponse.json();
+  const postData = withSharedStateCartridge(
+    encoded.postData,
+    manifestResult.mediaUrl,
+    encoded.compressedBytes
+  );
+  const shareResponse = await request.post('/api/share-state', {
+    data: {
+      postData,
+      previewDataUrl: null,
+      previewKind: 'hidden',
+      title: 'Cartridge checkpoint test',
+    },
+  });
+
+  expect(shareResponse.ok()).toBe(true);
+  const result = await shareResponse.json();
+  expect(result.postDataBytes).toBeLessThanOrEqual(1_800);
+
+  await page.goto(result.postUrl);
+  await page
+    .getByRole('button', { name: /Play Cartridge Browser Test/ })
+    .click();
   await expect(page).toHaveURL(/game\.html\?localShare=/);
   await expect(page.getByText('Play shared checkpoint')).toBeVisible();
 });

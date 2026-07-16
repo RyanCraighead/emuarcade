@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { encodeSharedState } from '../../../src/shared/sharedState';
+import {
+  encodeSharedState,
+  withSharedStateCartridge,
+} from '../../../src/shared/sharedState';
 import type { SharedStateShareInput } from '../../../src/shared/sharedState';
 
 const serverMocks = vi.hoisted(() => ({
@@ -7,6 +10,10 @@ const serverMocks = vi.hoisted(() => ({
   submitComment: vi.fn(),
   submitCustomPost: vi.fn(),
   upload: vi.fn(),
+}));
+
+const cartridgeMocks = vi.hoisted(() => ({
+  readManifest: vi.fn(),
 }));
 
 vi.mock('@devvit/web/server', () => ({
@@ -18,6 +25,10 @@ vi.mock('@devvit/web/server', () => ({
   },
 }));
 
+vi.mock('../../../src/server/stateCartridges', () => ({
+  readStateCartridgeManifest: cartridgeMocks.readManifest,
+}));
+
 import { shareState, shareStateComment } from '../../../src/server/shares';
 
 const createInput = (
@@ -25,6 +36,7 @@ const createInput = (
 ): SharedStateShareInput => ({
   postData: encodeSharedState(new Uint8Array(24_000), {
     core: 'nes',
+    coreFingerprint: 'ejs-4.2.3:fceumm',
     gameTitle: 'Test Adventure',
     romFingerprint: 'abcdefgh12345678',
   }).postData,
@@ -39,6 +51,7 @@ beforeEach(() => {
   serverMocks.upload.mockReset();
   serverMocks.submitComment.mockReset();
   serverMocks.submitCustomPost.mockReset();
+  cartridgeMocks.readManifest.mockReset();
   serverMocks.upload.mockResolvedValue({
     mediaUrl: 'https://preview.redd.it/checkpoint.png',
   });
@@ -47,6 +60,12 @@ beforeEach(() => {
     permalink: '/r/emuarcade/comments/checkpoint/play_from_here/',
   });
   serverMocks.submitComment.mockResolvedValue({ id: 't1_comment' });
+  cartridgeMocks.readManifest.mockResolvedValue({
+    v: 1,
+    n: 256,
+    h: 'a'.repeat(64),
+    chunks: [],
+  });
 });
 
 describe('shared checkpoint posts', () => {
@@ -144,5 +163,52 @@ describe('shared checkpoint posts', () => {
       })
     ).rejects.toThrow('integrity');
     expect(serverMocks.upload).not.toHaveBeenCalled();
+  });
+
+  it('submits cartridge metadata without placing state bytes in post data', async () => {
+    const input = createInput('hidden');
+    const cartridge = withSharedStateCartridge(
+      input.postData,
+      'https://i.redd.it/state-manifest.png',
+      256
+    );
+
+    await shareState({ ...input, postData: cartridge });
+
+    expect(cartridgeMocks.readManifest).toHaveBeenCalledWith(
+      'https://i.redd.it/state-manifest.png'
+    );
+    expect(serverMocks.submitCustomPost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        postData: expect.objectContaining({
+          m: 'https://i.redd.it/state-manifest.png',
+          b: 256,
+        }),
+      })
+    );
+    expect(
+      serverMocks.submitCustomPost.mock.calls[0]?.[0].postData.s
+    ).toBeUndefined();
+  });
+
+  it('rejects cartridge manifests whose payload length does not match the post', async () => {
+    const input = createInput('hidden');
+    const cartridge = withSharedStateCartridge(
+      input.postData,
+      'https://i.redd.it/state-manifest.png',
+      256
+    );
+    cartridgeMocks.readManifest.mockResolvedValue({
+      v: 1,
+      n: 255,
+      h: 'a'.repeat(64),
+      chunks: [],
+    });
+
+    await expect(shareState({ ...input, postData: cartridge })).rejects.toThrow(
+      'length does not match'
+    );
+    expect(serverMocks.upload).not.toHaveBeenCalled();
+    expect(serverMocks.submitCustomPost).not.toHaveBeenCalled();
   });
 });

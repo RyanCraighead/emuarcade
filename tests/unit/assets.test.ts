@@ -1,7 +1,10 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { EMULATOR_SYSTEMS } from '../../src/shared/emulator';
+import {
+  EMULATORJS_STATE_BUILD,
+  EMULATOR_SYSTEMS,
+} from '../../src/shared/emulator';
 import type { EmulatorCore } from '../../src/shared/emulator';
 
 const publicDirectory = path.join(process.cwd(), 'public');
@@ -46,8 +49,15 @@ describe('bundled application assets', () => {
     const packageManifest = JSON.parse(
       await readFile(path.join(process.cwd(), 'package.json'), 'utf8')
     );
+    const packageLock = JSON.parse(
+      await readFile(path.join(process.cwd(), 'package-lock.json'), 'utf8')
+    );
 
     expect(config.permissions.media).toBe(true);
+    expect(config.permissions.http).toEqual({
+      enable: true,
+      domains: ['i.redd.it', 'preview.redd.it'],
+    });
     expect(config.post.entrypoints.default).toMatchObject({
       entry: 'splash.html',
       inline: true,
@@ -62,6 +72,12 @@ describe('bundled application assets', () => {
       'SUBMIT_COMMENT',
     ]);
     expect(packageManifest.license).toBe('GPL-3.0-only');
+    expect(packageManifest.devDependencies['@emulatorjs/emulatorjs']).toBe(
+      `^${EMULATORJS_STATE_BUILD}`
+    );
+    expect(
+      packageLock.packages['node_modules/@emulatorjs/emulatorjs'].version
+    ).toBe(EMULATORJS_STATE_BUILD);
     await expectNonEmptyFile(path.join(process.cwd(), 'LICENSE'));
   });
 

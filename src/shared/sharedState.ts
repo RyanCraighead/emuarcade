@@ -2,20 +2,25 @@ import { deflateSync, inflateSync } from 'fflate';
 import { z } from 'zod';
 import { isEmulatorCore } from './emulator';
 import type { EmulatorCore } from './emulator';
+import { MAX_STATE_CARTRIDGE_BYTES } from './stateCartridge';
 
 export const MAX_SHARED_POST_DATA_BYTES = 1_800;
+export const MAX_SHARED_STATE_RAW_BYTES = 128 * 1024 * 1024;
 
 export type SharedStateCodec = 'd' | 'p' | 'x';
 export type SharedStatePreviewKind = 'gif' | 'hidden' | 'image';
 
 export type SharedStatePostData = {
-  v: 1;
+  v: 1 | 2;
   k: 's';
   c: EmulatorCore;
   g: string;
   r: string;
+  f?: string;
   e: SharedStateCodec;
-  s: string;
+  s?: string;
+  m?: string;
+  b?: number;
   z: number;
   a: string;
   p?: string;
@@ -25,6 +30,7 @@ export type SharedStatePostData = {
 
 export type EncodedSharedState = {
   postData: SharedStatePostData;
+  compressedPayload: Uint8Array;
   compressedBytes: number;
   postDataBytes: number;
   rawBytes: number;
@@ -56,20 +62,53 @@ type CompressionCandidate = {
   bytes: Uint8Array;
 };
 
-const sharedStatePostDataShape = z.object({
-  v: z.literal(1),
-  k: z.literal('s'),
-  c: z.string().refine(isEmulatorCore),
-  g: z.string().trim().min(1).max(80),
-  r: z.string().min(8).max(64),
-  e: z.enum(['d', 'p', 'x']),
-  s: z.string().min(1).max(2_000),
-  z: z.number().int().positive(),
-  a: z.string().min(1).max(16),
-  p: z.string().url().max(512).optional(),
-  q: z.enum(['g', 'i']).optional(),
-  h: z.literal(1).optional(),
-});
+const sharedStatePostDataShape = z
+  .object({
+    v: z.union([z.literal(1), z.literal(2)]),
+    k: z.literal('s'),
+    c: z.string().refine(isEmulatorCore),
+    g: z.string().trim().min(1).max(80),
+    r: z.string().min(8).max(64),
+    f: z.string().min(8).max(64).optional(),
+    e: z.enum(['d', 'p', 'x']),
+    s: z.string().min(1).max(2_000).optional(),
+    m: z.string().url().max(512).optional(),
+    b: z.number().int().positive().max(MAX_STATE_CARTRIDGE_BYTES).optional(),
+    z: z.number().int().positive().max(MAX_SHARED_STATE_RAW_BYTES),
+    a: z.string().min(1).max(64),
+    p: z.string().url().max(512).optional(),
+    q: z.enum(['g', 'i']).optional(),
+    h: z.literal(1).optional(),
+  })
+  .superRefine((value, refinement) => {
+    if (Boolean(value.s) === Boolean(value.m)) {
+      refinement.addIssue({
+        code: 'custom',
+        message: 'Shared state must have exactly one payload source',
+      });
+    }
+
+    if (value.v === 1 && (!value.s || value.m || value.b)) {
+      refinement.addIssue({
+        code: 'custom',
+        message: 'Version 1 shared states must be inline',
+      });
+    }
+
+    if (value.v === 2 && !value.f) {
+      refinement.addIssue({
+        code: 'custom',
+        message: 'Version 2 shared states require a core fingerprint',
+      });
+    }
+
+    if (Boolean(value.m) !== Boolean(value.b)) {
+      refinement.addIssue({
+        code: 'custom',
+        message: 'Cartridge manifest and payload length must appear together',
+      });
+    }
+  });
 
 const normalizeSharedStatePostData = (
   value: z.infer<typeof sharedStatePostDataShape>
@@ -80,10 +119,13 @@ const normalizeSharedStatePostData = (
     c: value.c,
     g: value.g,
     r: value.r,
+    ...(value.f ? { f: value.f } : {}),
     e: value.e,
-    s: value.s,
     z: value.z,
     a: value.a,
+    ...(value.s ? { s: value.s } : {}),
+    ...(value.m ? { m: value.m } : {}),
+    ...(value.b ? { b: value.b } : {}),
     ...(value.p ? { p: value.p } : {}),
     ...(value.q ? { q: value.q } : {}),
     ...(value.h ? { h: value.h } : {}),
@@ -92,11 +134,7 @@ const normalizeSharedStatePostData = (
 
 export const sharedStateShareInputSchema = z.object({
   postData: sharedStatePostDataShape.transform(normalizeSharedStatePostData),
-  previewDataUrl: z
-    .string()
-    .startsWith('data:')
-    .max(28_000_000)
-    .nullable(),
+  previewDataUrl: z.string().startsWith('data:').max(28_000_000).nullable(),
   previewKind: z.enum(['gif', 'hidden', 'image']),
   title: z.string().trim().min(1).max(120),
 });
@@ -235,6 +273,7 @@ export const encodeSharedState = (
   bytes: Uint8Array,
   metadata: {
     core: EmulatorCore;
+    coreFingerprint: string;
     gameTitle: string;
     romFingerprint: string;
   }
@@ -243,13 +282,18 @@ export const encodeSharedState = (
     throw new Error('Save state is empty');
   }
 
+  if (bytes.byteLength > MAX_SHARED_STATE_RAW_BYTES) {
+    throw new Error('Save state exceeds the safe raw size limit');
+  }
+
   const compressed = getSmallestCompression(bytes);
   const postData: SharedStatePostData = {
-    v: 1,
+    v: 2,
     k: 's',
     c: metadata.core,
     g: metadata.gameTitle.trim().slice(0, 80),
     r: metadata.romFingerprint,
+    f: metadata.coreFingerprint,
     e: compressed.codec,
     s: encodeBase64Url(compressed.bytes),
     z: bytes.byteLength,
@@ -259,6 +303,7 @@ export const encodeSharedState = (
 
   return {
     postData,
+    compressedPayload: Uint8Array.from(compressed.bytes),
     compressedBytes: compressed.bytes.byteLength,
     postDataBytes,
     rawBytes: bytes.byteLength,
@@ -266,8 +311,29 @@ export const encodeSharedState = (
   };
 };
 
-export const decodeSharedState = (postData: SharedStatePostData) => {
-  const inflated = inflateSync(decodeBase64Url(postData.s));
+export const decodeSharedStatePayload = (
+  postData: SharedStatePostData,
+  compressedPayload: Uint8Array
+) => {
+  if (postData.z < 1 || postData.z > MAX_SHARED_STATE_RAW_BYTES) {
+    throw new Error('Shared save state raw size exceeds the safe limit');
+  }
+
+  if (
+    compressedPayload.byteLength < 1 ||
+    compressedPayload.byteLength > MAX_STATE_CARTRIDGE_BYTES
+  ) {
+    throw new Error('Shared save state payload exceeds the safe size limit');
+  }
+
+  const inflated = inflateSync(compressedPayload, {
+    out: new Uint8Array(postData.z + 1),
+  });
+
+  if (inflated.byteLength !== postData.z) {
+    throw new Error('Shared save state has an invalid length');
+  }
+
   const decoded =
     postData.e === 'x'
       ? decodeDelta(inflated)
@@ -275,15 +341,43 @@ export const decodeSharedState = (postData: SharedStatePostData) => {
         ? decodePageXor(inflated)
         : inflated;
 
-  if (decoded.byteLength !== postData.z) {
-    throw new Error('Shared save state has an invalid length');
-  }
-
   if (calculateChecksum(decoded) !== postData.a) {
     throw new Error('Shared save state failed its integrity check');
   }
 
   return decoded;
+};
+
+export const decodeSharedState = (postData: SharedStatePostData) => {
+  if (!postData.s) {
+    throw new Error('Shared save state requires its State Cartridge');
+  }
+
+  return decodeSharedStatePayload(postData, decodeBase64Url(postData.s));
+};
+
+export const isCartridgeSharedState = (postData: SharedStatePostData) => {
+  return Boolean(postData.m);
+};
+
+export const withSharedStateCartridge = (
+  postData: SharedStatePostData,
+  manifestUrl: string,
+  compressedBytes: number
+): SharedStatePostData => {
+  return {
+    v: 2,
+    k: postData.k,
+    c: postData.c,
+    g: postData.g,
+    r: postData.r,
+    ...(postData.f ? { f: postData.f } : {}),
+    e: postData.e,
+    z: postData.z,
+    a: postData.a,
+    m: manifestUrl,
+    b: compressedBytes,
+  };
 };
 
 export const parseSharedStatePostData = (
@@ -309,10 +403,13 @@ export const withSharedStatePreview = (
     c: postData.c,
     g: postData.g,
     r: postData.r,
+    ...(postData.f ? { f: postData.f } : {}),
     e: postData.e,
-    s: postData.s,
     z: postData.z,
     a: postData.a,
+    ...(postData.s ? { s: postData.s } : {}),
+    ...(postData.m ? { m: postData.m } : {}),
+    ...(postData.b ? { b: postData.b } : {}),
   };
 
   if (previewKind === 'hidden' || !mediaUrl) {

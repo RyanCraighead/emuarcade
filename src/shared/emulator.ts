@@ -105,6 +105,60 @@ export const getDefaultClipPostTitle = (gameTitle: string) => {
 };
 
 export const EMULATORJS_DATA_PATH = '/emulatorjs/data/';
+export const EMULATORJS_STATE_BUILD = '4.2.3';
+
+const STATE_CORE_NAMES: Record<EmulatorCore, string> = {
+  arcade: 'fbneo',
+  atari2600: 'stella2014',
+  atari7800: 'prosystem',
+  coleco: 'gearcoleco',
+  gb: 'gambatte',
+  gba: 'mgba',
+  lynx: 'handy',
+  n64: 'parallel_n64',
+  nds: 'melonds',
+  nes: 'fceumm',
+  ngp: 'mednafen_ngp',
+  pce: 'mednafen_pce',
+  psp: 'ppsspp',
+  psx: 'pcsx_rearmed',
+  segaGG: 'genesis_plus_gx',
+  segaMD: 'genesis_plus_gx',
+  segaMS: 'smsplus',
+  snes: 'snes9x',
+  vb: 'beetle_vb',
+  ws: 'mednafen_wswan',
+};
+
+export const getStateCoreFingerprint = (
+  core: EmulatorCore,
+  n64Core: N64CoreOption = 'parallel_n64'
+) => {
+  const stateCore = core === 'n64' ? n64Core : STATE_CORE_NAMES[core];
+
+  return `ejs-${EMULATORJS_STATE_BUILD}:${stateCore}`;
+};
+
+export const getStateN64Core = (fingerprint: string | undefined) => {
+  return (
+    N64_CORE_OPTIONS.find(
+      ({ value }) => getStateCoreFingerprint('n64', value) === fingerprint
+    )?.value ?? null
+  );
+};
+
+export const isCurrentStateCoreFingerprint = (
+  core: EmulatorCore,
+  fingerprint: string | undefined
+) => {
+  if (!fingerprint) {
+    return true;
+  }
+
+  return core === 'n64'
+    ? getStateN64Core(fingerprint) !== null
+    : getStateCoreFingerprint(core) === fingerprint;
+};
 
 export const DEFAULT_SETTINGS: EmulatorSettings = {
   volume: 0.8,

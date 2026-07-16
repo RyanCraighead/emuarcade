@@ -3,8 +3,11 @@ import {
   DEFAULT_SETTINGS,
   EMULATOR_SYSTEMS,
   getDefaultClipPostTitle,
+  getStateCoreFingerprint,
+  getStateN64Core,
   getSystemByCore,
   inferCoreFromFileName,
+  isCurrentStateCoreFingerprint,
   isEmulatorCore,
   isN64CoreOption,
   isVideoFilter,
@@ -85,6 +88,26 @@ describe('emulator catalog', () => {
     );
     expect(getDefaultClipPostTitle('  Chrono   Trigger  ')).toBe(
       'Chrono Trigger'
+    );
+  });
+
+  it('fingerprints the exact savestate core implementation', () => {
+    expect(getStateCoreFingerprint('nes')).toBe('ejs-4.2.3:fceumm');
+    expect(getStateCoreFingerprint('n64', 'parallel_n64')).toBe(
+      'ejs-4.2.3:parallel_n64'
+    );
+    expect(getStateCoreFingerprint('n64', 'mupen64plus_next')).toBe(
+      'ejs-4.2.3:mupen64plus_next'
+    );
+    expect(getStateN64Core('ejs-4.2.3:mupen64plus_next')).toBe(
+      'mupen64plus_next'
+    );
+    expect(getStateN64Core('ejs-4.1.0:mupen64plus_next')).toBeNull();
+    expect(isCurrentStateCoreFingerprint('n64', 'ejs-4.2.3:parallel_n64')).toBe(
+      true
+    );
+    expect(isCurrentStateCoreFingerprint('nes', 'ejs-4.1.0:fceumm')).toBe(
+      false
     );
   });
 });

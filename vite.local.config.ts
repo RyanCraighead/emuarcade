@@ -22,6 +22,17 @@ import type {
   SharedStatePostData,
   SharedStateShareResult,
 } from './src/shared/sharedState';
+import {
+  calculateStateCartridgeSha256,
+  decodeStateCartridgeBase64,
+  decodeStateCartridgeManifest,
+  decodeStateCartridgePng,
+  encodeStateCartridgeManifest,
+  encodeStateCartridgePng,
+  joinStateCartridgePayload,
+  stateCartridgeChunkUploadInputSchema,
+  stateCartridgeManifestUploadInputSchema,
+} from './src/shared/stateCartridge';
 
 type LocalClip = {
   buffer: Buffer;
@@ -42,6 +53,7 @@ type LocalSharedState = {
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 const localClipStore = new Map<string, LocalClip>();
 const localSharedStateStore = new Map<string, LocalSharedState>();
+const localStateCartridgeStore = new Map<string, Buffer>();
 let localLaunchCount = 0;
 let localViewerSeen = false;
 
@@ -95,6 +107,14 @@ const parseDataUrl = (dataUrl: string) => {
       : Buffer.from(decodeURIComponent(payload)),
     mimeType,
   };
+};
+
+const getLocalStateCartridge = (mediaUrl: string) => {
+  const url = new URL(mediaUrl);
+  const match = /^\/api\/local-cartridges\/([a-z0-9]+)$/i.exec(url.pathname);
+  const id = match?.[1];
+
+  return id ? (localStateCartridgeStore.get(id) ?? null) : null;
 };
 
 const createLocalTrpcContext = (): TrpcContext => {
@@ -334,6 +354,167 @@ const localDevServerPlugin = (): Plugin => {
             };
 
             sendJson(response, 200, result);
+            return;
+          }
+
+          if (
+            routePath === '/api/state-cartridge/chunk' &&
+            request.method === 'POST'
+          ) {
+            const input = stateCartridgeChunkUploadInputSchema.parse(
+              await readRequestJson(request)
+            );
+            const payload = decodeStateCartridgeBase64(input.data);
+            const png = encodeStateCartridgePng(payload, {
+              kind: 'chunk',
+              index: input.index,
+              count: input.count,
+            });
+            const id = crypto.randomUUID().replace(/-/g, '');
+            const host = request.headers.host ?? '127.0.0.1:5174';
+            const mediaUrl = `http://${host}/api/local-cartridges/${id}`;
+
+            localStateCartridgeStore.set(id, Buffer.from(png));
+            sendJson(response, 200, {
+              u: mediaUrl,
+              z: payload.byteLength,
+              h: await calculateStateCartridgeSha256(payload),
+            });
+            return;
+          }
+
+          if (
+            routePath === '/api/state-cartridge/manifest' &&
+            request.method === 'POST'
+          ) {
+            const manifest = stateCartridgeManifestUploadInputSchema.parse(
+              await readRequestJson(request)
+            );
+            const payloads: Uint8Array[] = [];
+
+            for (let index = 0; index < manifest.chunks.length; index += 1) {
+              const reference = manifest.chunks[index];
+              const png = reference
+                ? getLocalStateCartridge(reference.u)
+                : null;
+
+              if (!reference || !png) {
+                throw new Error('Local State Cartridge chunk is missing');
+              }
+
+              const decoded = decodeStateCartridgePng(png);
+
+              if (
+                decoded.kind !== 'chunk' ||
+                decoded.index !== index ||
+                decoded.count !== manifest.chunks.length ||
+                decoded.payload.byteLength !== reference.z ||
+                (await calculateStateCartridgeSha256(decoded.payload)) !==
+                  reference.h
+              ) {
+                throw new Error('Local State Cartridge chunk is invalid');
+              }
+
+              payloads.push(decoded.payload);
+            }
+
+            const completePayload = joinStateCartridgePayload(
+              payloads,
+              manifest.n
+            );
+
+            if (
+              (await calculateStateCartridgeSha256(completePayload)) !==
+              manifest.h
+            ) {
+              throw new Error('Local State Cartridge payload is invalid');
+            }
+
+            const manifestPayload = encodeStateCartridgeManifest(manifest);
+            const png = encodeStateCartridgePng(manifestPayload, {
+              kind: 'manifest',
+            });
+            const id = crypto.randomUUID().replace(/-/g, '');
+            const host = request.headers.host ?? '127.0.0.1:5174';
+            const mediaUrl = `http://${host}/api/local-cartridges/${id}`;
+
+            localStateCartridgeStore.set(id, Buffer.from(png));
+            sendJson(response, 200, { mediaUrl });
+            return;
+          }
+
+          if (
+            routePath === '/api/state-cartridge/manifest' &&
+            request.method === 'GET'
+          ) {
+            const mediaUrl = requestUrl.searchParams.get('url');
+            const png = mediaUrl ? getLocalStateCartridge(mediaUrl) : null;
+
+            if (!png) {
+              sendNotFound(response);
+              return;
+            }
+
+            const decoded = decodeStateCartridgePng(png);
+
+            if (decoded.kind !== 'manifest') {
+              throw new Error('Local State Cartridge is not a manifest');
+            }
+
+            sendJson(
+              response,
+              200,
+              decodeStateCartridgeManifest(decoded.payload)
+            );
+            return;
+          }
+
+          if (
+            routePath === '/api/state-cartridge/chunk' &&
+            request.method === 'GET'
+          ) {
+            const mediaUrl = requestUrl.searchParams.get('url');
+            const png = mediaUrl ? getLocalStateCartridge(mediaUrl) : null;
+
+            if (!png) {
+              sendNotFound(response);
+              return;
+            }
+
+            const decoded = decodeStateCartridgePng(png);
+
+            if (decoded.kind !== 'chunk') {
+              throw new Error('Local State Cartridge is not a chunk');
+            }
+
+            response.statusCode = 200;
+            response.setHeader('Content-Type', 'application/octet-stream');
+            response.setHeader('Content-Length', decoded.payload.byteLength);
+            response.setHeader(
+              'X-EmuArcade-Chunk-Count',
+              decoded.count.toString()
+            );
+            response.setHeader(
+              'X-EmuArcade-Chunk-Index',
+              decoded.index.toString()
+            );
+            response.end(Buffer.from(decoded.payload));
+            return;
+          }
+
+          if (routePath.startsWith('/api/local-cartridges/')) {
+            const id = routePath.split('/').at(-1);
+            const png = id ? localStateCartridgeStore.get(id) : null;
+
+            if (!png) {
+              sendNotFound(response);
+              return;
+            }
+
+            response.statusCode = 200;
+            response.setHeader('Content-Type', 'image/png');
+            response.setHeader('Content-Length', png.byteLength);
+            response.end(png);
             return;
           }
 
