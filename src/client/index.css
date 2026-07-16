@@ -4,7 +4,10 @@ html,
 body,
 #root {
   height: 100%;
+  margin: 0;
   overflow: hidden;
+  padding: 0;
+  width: 100%;
 }
 
 body {
@@ -64,14 +67,15 @@ body {
   display: flex;
   height: 100%;
   justify-content: center;
+  margin: 0;
   overflow: hidden;
+  padding: 0;
   width: 100%;
 }
 
 .console-splash {
   -webkit-tap-highlight-color: transparent;
   appearance: none;
-  aspect-ratio: 1;
   background: transparent;
   border: 0;
   color: inherit;
@@ -79,8 +83,8 @@ body {
   display: block;
   flex: none;
   font: inherit;
+  height: 100%;
   margin: 0;
-  max-height: 100%;
   overflow: hidden;
   padding: 0;
   position: relative;
@@ -89,7 +93,7 @@ body {
     filter 160ms ease,
     transform 160ms ease;
   user-select: none;
-  width: min(100vw, 100vh);
+  width: 100%;
 }
 
 .console-splash:hover {
@@ -122,12 +126,22 @@ body {
 .console-splash-art img {
   display: block;
   height: 100%;
+  margin: 0;
+  padding: 0;
   pointer-events: none;
   width: 100%;
 }
 
+.console-splash-art {
+  inset: 0;
+  position: absolute;
+}
+
 .console-splash-art img {
+  inset: 0;
+  max-width: none;
   object-fit: fill;
+  position: absolute;
 }
 
 .console-splash-screen {
@@ -266,11 +280,6 @@ body {
 }
 
 @media (max-aspect-ratio: 3/4) {
-  .console-splash {
-    aspect-ratio: 2 / 3;
-    width: min(100vw, 66.667vh);
-  }
-
   .console-splash-device {
     --screen-height: 60.81%;
     --screen-left: 7.52%;
@@ -280,11 +289,6 @@ body {
 }
 
 @media (min-aspect-ratio: 23/20) {
-  .console-splash {
-    aspect-ratio: 4 / 3;
-    width: min(100vw, 133.333vh);
-  }
-
   .console-splash-device {
     --screen-height: 48.34%;
     --screen-left: 5.04%;
@@ -294,11 +298,6 @@ body {
 }
 
 @media (min-aspect-ratio: 8/5) {
-  .console-splash {
-    aspect-ratio: 16 / 9;
-    width: min(100vw, 177.778vh);
-  }
-
   .console-splash-device {
     --screen-height: 65.89%;
     --screen-left: 19.62%;
