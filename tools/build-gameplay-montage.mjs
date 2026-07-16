@@ -108,15 +108,14 @@ const encodeOptions = (output) => [
   output,
 ];
 
-const normalizeClip = (ffmpeg, source, output, focalY) => {
+const normalizeClip = (ffmpeg, source, output, focalY, fadeIn) => {
   const cropY = `(in_h-${FRAME_SIZE})*${focalY.toFixed(3)}`;
   const videoFilter = [
     `scale=${FRAME_SIZE}:${FRAME_SIZE}:force_original_aspect_ratio=increase:flags=lanczos`,
     `crop=${FRAME_SIZE}:${FRAME_SIZE}:(in_w-${FRAME_SIZE})/2:${cropY}`,
     `fps=${FPS}`,
     'setsar=1',
-    `fade=t=in:st=0:d=${FADE_SECONDS}`,
-    `fade=t=out:st=${CLIP_SECONDS - FADE_SECONDS}:d=${FADE_SECONDS}`,
+    ...(fadeIn ? [`fade=t=in:st=0:d=${FADE_SECONDS}`] : []),
     'format=yuv420p',
   ].join(',');
 
@@ -301,7 +300,13 @@ const main = () => {
   try {
     const normalized = sources.map((source, index) => {
       const output = join(temp, `clip-${String(index).padStart(2, '0')}.mp4`);
-      normalizeClip(options.ffmpeg, source, output, options.focalY);
+      normalizeClip(
+        options.ffmpeg,
+        source,
+        output,
+        options.focalY,
+        index === 0
+      );
       return output;
     });
     const grid = join(temp, 'grid.mp4');
