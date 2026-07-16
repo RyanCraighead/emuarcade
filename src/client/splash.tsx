@@ -33,81 +33,53 @@ export const Splash = () => {
         className="console-splash"
         onClick={(event) => requestExpandedMode(event.nativeEvent, 'game')}
       >
-        <span className="console-splash-header" aria-hidden="true">
-          <span className="console-splash-brand">
-            <img src="/emu-mascot.png" alt="" />
-            <span>EmuArcade</span>
-          </span>
-          <span className="console-splash-header-vents">
-            <i />
-            <i />
-            <i />
-          </span>
-        </span>
+        <span className="console-splash-device" aria-hidden="true">
+          <picture className="console-splash-art">
+            <source
+              media="(max-aspect-ratio: 3/4)"
+              srcSet="/splash-console-phone.webp"
+            />
+            <source
+              media="(min-aspect-ratio: 8/5)"
+              srcSet="/splash-console-wide.webp"
+            />
+            <source
+              media="(min-aspect-ratio: 23/20)"
+              srcSet="/splash-console-regular.webp"
+            />
+            <img
+              alt=""
+              draggable="false"
+              src="/splash-console-square.webp"
+            />
+          </picture>
 
-        <span className="console-splash-left" aria-hidden="true">
-          <span className="console-splash-speaker">
-            <i />
-            <i />
-            <i />
-            <i />
-          </span>
-
-          <span className="console-splash-dpad">
-            <i className="console-splash-dpad-vertical" />
-            <i className="console-splash-dpad-horizontal" />
-            <i className="console-splash-dpad-center" />
-          </span>
-
-          <span className="console-splash-control-label">Move</span>
-        </span>
-
-        <span className="console-splash-screen" aria-hidden="true">
-          <span className="console-splash-screen-grid" aria-hidden="true" />
-          <span className="console-splash-scanline" aria-hidden="true" />
-          <video
-            className="console-splash-video"
-            autoPlay={!prefersReducedMotion}
-            disablePictureInPicture
-            disableRemotePlayback
-            loop
-            muted
-            playsInline
-            poster="/splash-montage-poster.webp"
-            preload="auto"
-          >
-            <source src="/splash-montage.mp4" type="video/mp4" />
-          </video>
-
-          <span className="console-splash-ticker">
-            <span className="console-splash-ticker-track">
-              {[0, 1].map((copy) => (
-                <span className="console-splash-ticker-group" key={copy}>
-                  {tickerItems.map((item) => (
-                    <span key={`${copy}-${item}`}>{item}</span>
-                  ))}
-                </span>
-              ))}
-            </span>
-          </span>
-        </span>
-
-        <span className="console-splash-right" aria-hidden="true">
-          <span className="console-splash-buttons">
-            <i className="console-splash-button console-splash-button--y">Y</i>
-            <i className="console-splash-button console-splash-button--x">X</i>
-            <i className="console-splash-button console-splash-button--b">B</i>
-            <i className="console-splash-button console-splash-button--a">A</i>
-          </span>
-
-          <span className="console-splash-menu-buttons">
-            <span>
-              <i />
-              Select
-            </span>
-            <span>
-              <i />
-              Start
+          <span className="console-splash-screen">
+            <video
+              className="console-splash-video"
+              autoPlay={!prefersReducedMotion}
+              disablePictureInPicture
+              disableRemotePlayback
+              loop
+              muted
+              playsInline
+              poster="/splash-montage-poster.webp"
+              preload="auto"
+            >
+              <source src="/splash-montage.mp4" type="video/mp4" />
+            </video>
+            <span className="console-splash-screen-grid" />
+            <span className="console-splash-scanline" />
+            <span className="console-splash-ticker">
+              <span className="console-splash-ticker-track">
+                {[0, 1].map((copy) => (
+                  <span className="console-splash-ticker-group" key={copy}>
+                    {tickerItems.map((item) => (
+                      <span key={`${copy}-${item}`}>{item}</span>
+                    ))}
+                  </span>
+                ))}
+              </span>
             </span>
           </span>
         </span>
